@@ -141,6 +141,38 @@
   .pulse-dot { width: 8px; height: 8px; border-radius: 50%; background: #10b981; animation: pulse 2s infinite; display: inline-block; }
   @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
 
+  /* ====== 消息气泡 hover 增强 ====== */
+  .chat-msg-wrap { position: relative; }
+  .chat-msg-wrap .msg-meta {
+    position: absolute; bottom: -18px;
+    font-size: 10px; color: #64748b;
+    opacity: 0; transition: opacity 0.2s;
+    white-space: nowrap;
+  }
+  .chat-msg-wrap.user .msg-meta { right: 40px; }
+  .chat-msg-wrap.assistant .msg-meta { left: 40px; }
+  .chat-msg-wrap:hover .msg-meta { opacity: 1; }
+
+  /* 欢迎语卡片 */
+  .welcome-card {
+    background: linear-gradient(135deg, rgba(99,102,241,0.12), rgba(168,85,247,0.08));
+    border: 1px solid rgba(99,102,241,0.25);
+    border-radius: 16px;
+    padding: 16px 18px;
+    margin-bottom: 12px;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .welcome-card:hover { border-color: rgba(99,102,241,0.5); }
+  .welcome-card .welcome-title { display: flex; align-items: center; gap: 10px; font-weight: 600; color: #e2e8f0; margin-bottom: 4px; }
+  .welcome-card .welcome-body { color: #94a3b8; font-size: 13px; line-height: 1.7; overflow: hidden; transition: max-height 0.3s; }
+  .welcome-card .welcome-body.collapsed { max-height: 28px; }
+  .welcome-card .welcome-body.expanded { max-height: 400px; }
+  .welcome-card .welcome-body ul { margin: 4px 0 0 16px; padding: 0; }
+  .welcome-card .welcome-body li { margin: 2px 0; }
+  .welcome-card .welcome-toggle { font-size: 10px; color: #6366f1; margin-top: 6px; opacity: 0.7; }
+
+
   /* Tab 切换淡入 */
   .tab-panel { animation: fadeIn 0.25s ease-out; }
   @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
@@ -683,7 +715,8 @@
   function addMessage(role, content, isStreaming = false) {
     const container = document.getElementById('chat-messages');
     const wrap = document.createElement('div');
-    wrap.className = 'flex gap-3 ' + (role === 'user' ? 'flex-row-reverse' : '');
+    const time = new Date().toLocaleTimeString('zh-CN', {hour:'2-digit', minute:'2-digit'});
+    wrap.className = 'chat-msg-wrap ' + role + ' flex gap-3 chat-msg ' + (role === 'user' ? 'flex-row-reverse' : '');
     wrap.innerHTML = `
       <div class="w-8 h-8 rounded-full flex-shrink-0 flex items-center justify-center font-bold text-white text-sm ${role === 'user' ? 'bg-gradient-to-br from-blue-500 to-cyan-500' : 'bg-gradient-to-br from-indigo-500 to-purple-600'}">
         ${role === 'user' ? '你' : 'C'}
@@ -691,10 +724,21 @@
       <div class="flex-1 max-w-[85%] ${role === 'user' ? 'text-right' : ''}">
         <div class="prose-cm inline-block text-left p-3 rounded-xl ${role === 'user' ? 'bg-indigo-600/90' : 'bg-slate-700/70'} ${isStreaming ? 'typing-cursor' : ''}" style="white-space:pre-wrap">${content || ''}</div>
       </div>
+      <span class="msg-meta">${role === 'user' ? '👤 你' : '🤖 CodeMentor'} · ${time} · <button onclick="copyMsg(this)" class="hover:text-indigo-300 transition">📋 复制</button></span>
     `;
     container.appendChild(wrap);
     container.scrollTop = container.scrollHeight;
     return wrap;
+  }
+
+  // 复制消息内容
+  function copyMsg(btn) {
+    const bubble = btn.closest('.chat-msg-wrap').querySelector('.prose-cm');
+    const text = bubble.innerText;
+    navigator.clipboard.writeText(text).then(() => {
+      btn.textContent = '✓ 已复制';
+      setTimeout(() => btn.textContent = '📋 复制', 1200);
+    });
   }
 
   function updateMessage(wrap, content, isStreaming = false) {
@@ -1207,24 +1251,39 @@
   function renderWrongRanking(ranking) {
     const el = document.getElementById('wrong-ranking');
     if (!ranking || ranking.length === 0) {
-      el.innerHTML = '<p class="text-xs text-slate-500">暂无错题数据 — 学生在「练一练」答错题目后自动统计</p>';
+      el.innerHTML = '<p class="text-xs text-slate-500">📕 暂无错题数据 — 学生在「练一练」答错题目后自动统计</p>';
       return;
     }
+    const medals = ['🥇','🥈','🥉','4','5','6','7','8','9','10'];
+    const medalColors = ['text-amber-400','text-slate-300','text-orange-400','text-slate-500','text-slate-500','text-slate-500','text-slate-500','text-slate-500','text-slate-500','text-slate-500'];
     const maxCount = ranking[0].wrong_count;
-    el.innerHTML = ranking.map((item, i) => `
-      <div class="flex items-center gap-3 text-sm">
-        <span class="w-6 text-center font-bold ${i<3?'text-amber-400':'text-slate-500'}">${i+1}</span>
-        <div class="flex-1">
+    const barColors = [
+      'from-rose-500 to-red-500',
+      'from-orange-500 to-rose-500',
+      'from-amber-500 to-orange-500',
+      'from-amber-400 to-yellow-500',
+    ];
+    el.innerHTML = ranking.map((item, i) => {
+      const barCls = i < 3 ? barColors[i] : barColors[3];
+      return `
+      <div class="wrong-item group flex items-center gap-3 text-sm p-2 -mx-2 rounded-lg hover:bg-slate-800/40 transition">
+        <span class="w-6 text-center font-bold ${medalColors[i] || 'text-slate-500'}">${medals[i] || (i+1)}</span>
+        <div class="flex-1 min-w-0">
           <div class="flex justify-between items-center mb-1">
-            <span class="text-slate-200">${item.concept_name || item.concept_id}</span>
-            <span class="text-xs text-slate-400">${item.wrong_count} 次错题 · ${item.student_count} 人</span>
+            <span class="text-slate-200 truncate">${item.concept_name || item.concept_id}</span>
+            <div class="flex items-center gap-2 flex-shrink-0">
+              <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-rose-500/20 text-rose-300 border border-rose-500/30">
+                ❌ ${item.wrong_count}
+              </span>
+              <span class="text-[10px] text-slate-500">${item.student_count} 人</span>
+            </div>
           </div>
-          <div class="w-full h-2 bg-slate-700 rounded-full overflow-hidden">
-            <div class="h-full bg-gradient-to-r from-rose-500 to-amber-500 rounded-full" style="width:${(item.wrong_count/maxCount*100)}%"></div>
+          <div class="w-full h-2 bg-slate-700/50 rounded-full overflow-hidden">
+            <div class="h-full bg-gradient-to-r ${barCls} rounded-full transition-all duration-500" style="width:${Math.max(8, item.wrong_count/maxCount*100)}%"></div>
           </div>
         </div>
-      </div>
-    `).join('');
+      </div>`;
+    }).join('');
   }
 
   function renderRadar(mastery) {
@@ -1324,11 +1383,41 @@
 
   // 初始化
   setTimeout(() => {
-    // 默认欢迎消息
-    addMessage('assistant',
-      '👋 你好！我是 **CodeMentor**，你的 AI 编程导师。\n\n我可以帮你：\n\n- 📖 **理论问答** — 问我任何计算机知识点\n- 🐛 **代码调试** — 贴你的代码，我会跑沙箱 + AST 分析\n- 📝 **出题批改** — 切到「练一练」Tab，AI 出题 + 双轨批改\n- 📚 **学习路径** — 基于你的薄弱点推荐内容\n\n试试告诉我：**"红黑树和 AVL 树有什么区别？"**',
-      false
-    );
+    // 精致欢迎语卡片（独立 HTML，不用 Markdown 流程）
+    const chat = document.getElementById('chat-messages');
+    const wc = document.createElement('div');
+    wc.className = 'welcome-card';
+    wc.innerHTML = `
+      <div class="welcome-title">
+        <div class="w-7 h-7 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center font-bold text-white text-xs">C</div>
+        <span>你好！我是 CodeMentor 🤖</span>
+      </div>
+      <div class="welcome-body collapsed" id="welcome-body">
+        我可以帮你做这几件事：
+        <ul>
+          <li>📖 <b>理论问答</b> — 红黑树、动态规划、图论… 问就完事</li>
+          <li>🐛 <b>代码调试</b> — 贴一段 Python，沙箱运行 + AST 分析死循环/嵌套/复杂度</li>
+          <li>📝 <b>AI 出题 + 双轨批改</b> — 切「练一练」Tab，按知识点生成，沙箱跑 + LLM 解释</li>
+          <li>🖼️ <b>截图答疑</b> — 报错界面、代码截图，Zhipu GLM-4V-Flash 视觉理解</li>
+          <li>🎯 <b>BKT 知识追踪</b> — 每次答题后贝叶斯更新掌握概率，发现你的薄弱点</li>
+          <li>🗺️ <b>图谱 62 节点 / 69 前置关系</b> — 点击节点直接提问，搜索快速定位</li>
+        </ul>
+        <div class="welcome-toggle" id="welcome-toggle">展开更多 ▼</div>
+      </div>
+    `;
+    wc.onclick = (e) => {
+      if (e.target.tagName === 'BUTTON') return;
+      const body = document.getElementById('welcome-body');
+      const btn = document.getElementById('welcome-toggle');
+      if (body.classList.contains('collapsed')) {
+        body.classList.remove('collapsed'); body.classList.add('expanded');
+        btn.textContent = '收起 ▲';
+      } else {
+        body.classList.remove('expanded'); body.classList.add('collapsed');
+        btn.textContent = '展开更多 ▼';
+      }
+    };
+    chat.appendChild(wc);
     // 加载右侧仪表盘
     refreshDashboard();
   }, 300);
