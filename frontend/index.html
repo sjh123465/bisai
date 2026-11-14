@@ -206,6 +206,14 @@
           <div id="heatmap-chart" style="height:280px"></div>
         </div>
       </div>
+      <div class="px-4 mb-4">
+        <div class="bg-slate-900/50 rounded-xl p-4">
+          <h3 class="text-sm font-medium mb-3">📕 高频错题榜（按知识点聚合全班答错次数）</h3>
+          <div id="wrong-ranking" class="space-y-2">
+            <p class="text-xs text-slate-500">暂无错题数据 — 学生在「练一练」答错题目后自动统计</p>
+          </div>
+        </div>
+      </div>
       <div id="report-box" class="mx-4 mb-4 bg-slate-900/50 rounded-xl p-4 hidden">
         <h3 class="text-sm font-medium mb-2 flex items-center gap-2"><span class="tool-badge">🤖</span> AI 学情分析报告</h3>
         <div id="report-content" class="prose-cm text-sm text-slate-300 max-h-64 overflow-auto"></div>
@@ -651,14 +659,39 @@
       renderRadar(sample);
     }
 
-    // 热力图
+    // 热力图 + 高频错题榜
     try {
       const resp = await fetch(API + '/teacher/dashboard');
       const dash = await resp.json();
       renderHeatmap(dash.heatmap || {});
+      renderWrongRanking(dash.wrong_ranking || []);
     } catch(e) {
       renderHeatmap({});
+      renderWrongRanking([]);
     }
+  }
+
+  function renderWrongRanking(ranking) {
+    const el = document.getElementById('wrong-ranking');
+    if (!ranking || ranking.length === 0) {
+      el.innerHTML = '<p class="text-xs text-slate-500">暂无错题数据 — 学生在「练一练」答错题目后自动统计</p>';
+      return;
+    }
+    const maxCount = ranking[0].wrong_count;
+    el.innerHTML = ranking.map((item, i) => `
+      <div class="flex items-center gap-3 text-sm">
+        <span class="w-6 text-center font-bold ${i<3?'text-amber-400':'text-slate-500'}">${i+1}</span>
+        <div class="flex-1">
+          <div class="flex justify-between items-center mb-1">
+            <span class="text-slate-200">${item.concept_name || item.concept_id}</span>
+            <span class="text-xs text-slate-400">${item.wrong_count} 次错题 · ${item.student_count} 人</span>
+          </div>
+          <div class="w-full h-2 bg-slate-700 rounded-full overflow-hidden">
+            <div class="h-full bg-gradient-to-r from-rose-500 to-amber-500 rounded-full" style="width:${(item.wrong_count/maxCount*100)}%"></div>
+          </div>
+        </div>
+      </div>
+    `).join('');
   }
 
   function renderRadar(mastery) {
@@ -830,15 +863,33 @@
     }
   }
 
+  // 答题后自动记录到错题本 + 联动 BKT
+  async function recordAnswer(conceptId, question, answer, correct) {
+    try {
+      await fetch('/api/wrongbook/record', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          student_id: 'demo_student',
+          concept_id: conceptId,
+          question: question,
+          student_answer: String(answer).slice(0, 200),
+          correct: correct,
+        })
+      });
+    } catch (e) { console.error('记录答题失败', e); }
+  }
+
   function checkChoice(btn, q, selected) {
     const correct = selected.startsWith(q.answer);
     btn.className = correct ? 'w-full text-left px-3 py-2 rounded-lg bg-emerald-700/50 border border-emerald-500 text-sm'
                               : 'w-full text-left px-3 py-2 rounded-lg bg-rose-700/50 border border-rose-500 text-sm';
+    recordAnswer(q.concept_id, q, selected, correct);
     showResult(q, correct ? '通过' : '不通过', q.explanation);
   }
 
   function checkJudge(btn, q, val) {
     const correct = (val === q.answer);
+    recordAnswer(q.concept_id, q, val ? '正确' : '错误', correct);
     showResult(q, correct ? '通过' : '不通过', q.explanation);
   }
 
@@ -855,6 +906,12 @@
         body: JSON.stringify({code, test_cases: currentQuestion.test_cases || [], concept_id: currentQuestion.concept_id})
       }).then(r => r.json());
       renderGradeResult(data, code);
+      // 编程题根据沙箱通过率 + 评分判定对错，联动 BKT
+      const sb = data.sandbox_track || {};
+      const score = (data.review || {}).correctness_score || 0;
+      const allPass = sb.total > 0 && sb.passed === sb.total;
+      const correct = allPass || score >= 80;
+      recordAnswer(currentQuestion.concept_id, currentQuestion, code, correct);
     } catch (e) { alert('批改失败: ' + e); }
     finally { btn.disabled = false; btn.textContent = '✅ 提交批改'; }
   }
