@@ -18,16 +18,18 @@ class MultimodalService:
     def _resolve_vendor(self):
         # 优先用独立的多模态配置，否则回退到主 LLM
         if self.cfg.multimodal_api_key and self.cfg.multimodal_base_url and self.cfg.multimodal_model:
+            # MULTIMODAL_MODEL 支持逗号分隔多个候选，按顺序尝试，哪个开通了就用哪个
+            models = [m.strip() for m in self.cfg.multimodal_model.split(",") if m.strip()]
             return {
                 "api_key": self.cfg.multimodal_api_key,
                 "base_url": self.cfg.multimodal_base_url,
-                "model": self.cfg.multimodal_model,
+                "models": models,
                 "separate": True,
             }
         return {
             "api_key": self.cfg.llm_api_key,
             "base_url": self.cfg.llm_base_url,
-            "model": self.cfg.llm_model,
+            "models": [self.cfg.llm_model],
             "separate": False,
         }
 
@@ -60,42 +62,56 @@ class MultimodalService:
             "Authorization": f"Bearer {vendor['api_key']}",
             "Content-Type": "application/json",
         }
-        payload = {
-            "model": vendor["model"],
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": question},
-                        {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{image_b64}"}},
-                    ],
-                },
-            ],
-            "temperature": 0.5,
-        }
 
+        # 兼容两种入参：完整 data URL 或裸 base64（裸 base64 默认按 png 处理）
+        if image_b64.startswith("data:"):
+            image_url_value = image_b64
+        else:
+            image_url_value = f"data:image/png;base64,{image_b64}"
+
+        last_err = ""
         try:
             async with httpx.AsyncClient(timeout=httpx.Timeout(60.0)) as client:
-                resp = await client.post(url, headers=headers, json=payload)
-                if resp.status_code != 200:
-                    err = resp.text[:300]
-                    logger.error(f"多模态调用失败: {resp.status_code} {err}")
-                    if resp.status_code in (400, 403):
-                        return {
-                            "ok": False,
-                            "message": (
-                                f"视觉模型 {vendor['model']} 暂未开通或无权限（错误 {resp.status_code}）。\n\n"
-                                "请按以下步骤开通（有免费额度）：\n"
-                                "1. 打开 https://bailian.console.aliyun.com/#/model-market\n"
-                                "2. 搜索「qwen2.5-vl-7b-instruct」并点击「开通服务」\n"
-                                "3. 开通后即可使用截图答疑功能"
-                            ),
-                        }
-                    return {"ok": False, "message": f"多模态服务调用失败({resp.status_code})"}
-                data = resp.json()
-                answer = data["choices"][0]["message"]["content"]
-                return {"ok": True, "answer": answer, "model": vendor["model"]}
+                # 依次尝试候选模型，第一个成功的就直接返回
+                for model in vendor["models"]:
+                    payload = {
+                        "model": model,
+                        "messages": [
+                            {"role": "system", "content": system_prompt},
+                            {
+                                "role": "user",
+                                "content": [
+                                    {"type": "text", "text": question},
+                                    {"type": "image_url", "image_url": {"url": image_url_value}},
+                                ],
+                            },
+                        ],
+                        "temperature": 0.5,
+                    }
+                    resp = await client.post(url, headers=headers, json=payload)
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        answer = data["choices"][0]["message"]["content"]
+                        self._working_model = model
+                        logger.info(f"✅ 多模态成功: {model}")
+                        return {"ok": True, "answer": answer, "model": model}
+
+                    err = resp.text[:200]
+                    last_err = f"{model} -> {resp.status_code}"
+                    logger.warning(f"多模态模型 {model} 不可用({resp.status_code})，尝试下一个")
+
+                # 全部失败，返回开通指引
+                return {
+                    "ok": False,
+                    "message": (
+                        f"所有候选视觉模型均不可用（{last_err}）。\n\n"
+                        "请按以下步骤开通（每个模型独立 100 万 Token 免费额度）：\n"
+                        "1. 打开 https://bailian.console.aliyun.com/\n"
+                        "2. 左侧「模型广场」→ 搜索 qwen-vl\n"
+                        "3. 找到 qwen3-vl-plus / qwen-vl-max，点「开通服务」\n"
+                        "4. 开通后重新上传图片即可"
+                    ),
+                }
         except Exception as e:
             logger.error(f"多模态异常: {e}")
             return {"ok": False, "message": f"调用异常: {e}"}

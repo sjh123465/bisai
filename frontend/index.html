@@ -1143,7 +1143,7 @@
     if (!file) return;
     const reader = new FileReader();
     reader.onload = async (e) => {
-      const b64 = e.target.result.split(',')[1];
+      const dataUrl = e.target.result;   // 完整 data URL，保留真实 MIME（png/jpeg 等）
       const wrap = addMessage('user', `[图片] ${file.name}`, false);
       // 直接在用户消息后追加图片预览
       const bubble = wrap.querySelector('.prose-cm');
@@ -1154,7 +1154,7 @@
       try {
         const res = await fetch('/api/multimodal/analyze', {
           method: 'POST', headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({image: b64, question: q})
+          body: JSON.stringify({image: dataUrl, question: q})
         }).then(r => r.json());
         if (res.ok) {
           updateMessage(aiWrap, res.answer, false);
