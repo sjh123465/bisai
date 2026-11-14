@@ -245,9 +245,9 @@
   <section class="lg:col-span-8 space-y-4">
 
     <!-- 对话主界面 -->
-    <div id="panel-chat" class="tab-panel bg-slate-800/50 rounded-2xl border border-slate-700/50 overflow-hidden backdrop-blur">
-      <!-- 消息流 -->
-      <div id="chat-messages" class="h-[calc(100vh-360px)] min-h-[400px] overflow-y-auto p-4 space-y-4"></div>
+    <div id="panel-chat" class="tab-panel bg-slate-800/50 rounded-2xl border border-slate-700/50 backdrop-blur hidden flex flex-col" style="height:calc(100vh - 180px); min-height:520px;">
+      <!-- 消息流（flex-1 自动填充 + 内部独立滚动） -->
+      <div id="chat-messages" class="flex-1 min-h-0 overflow-y-auto p-4 space-y-4"></div>
 
       <!-- 代码折叠 -->
       <div id="code-panel" class="border-t border-slate-700/50 hidden">
@@ -267,8 +267,8 @@
         <div id="code-output" class="bg-slate-950 text-xs p-3 max-h-28 overflow-auto font-mono border-t border-slate-700 text-slate-300 hidden"></div>
       </div>
 
-      <!-- 输入区 -->
-      <div class="border-t border-slate-700/50 p-3 bg-slate-800/30">
+      <!-- 输入区（sticky 吸底） -->
+      <div class="border-t border-slate-700/50 p-3 bg-slate-800/30 flex-shrink-0">
         <!-- 快捷操作栏（仅对话 Tab 显示） -->
         <div data-tabs="chat" class="flex gap-2 mb-2 text-xs flex-wrap items-center">
           <button onclick="toggleCodePanel()" class="px-2 py-1 rounded bg-slate-700/70 text-slate-300 hover:bg-slate-600">📎 附加代码</button>
@@ -304,9 +304,9 @@
             <option value="judge">判断题</option>
             <option value="code">编程题</option>
           </select>
-          <button onclick="generateQuestion()" class="px-4 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-sm">🎲 生成题目</button>
-          <button onclick="generatePaper()" class="px-4 py-1.5 rounded-lg bg-violet-600/80 hover:bg-violet-500 text-sm">📄 生成试卷</button>
-          <button onclick="loadRetryQuestions()" class="px-4 py-1.5 rounded-lg bg-rose-600/80 hover:bg-rose-500 text-sm">📕 错题重做</button>
+          <button onclick="generateQuestion()" class="px-5 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-sm font-medium shadow-lg shadow-indigo-600/30 transition">🎲 生成题目</button>
+          <button onclick="generatePaper()" class="px-3 py-1.5 rounded-lg bg-transparent border border-violet-500/30 text-violet-300 hover:bg-violet-500/10 text-xs transition">📄 生成试卷</button>
+          <button onclick="loadRetryQuestions()" class="px-3 py-1.5 rounded-lg bg-transparent border border-rose-500/30 text-rose-300 hover:bg-rose-500/10 text-xs transition">📕 错题重做</button>
         </div>
       </div>
       <div class="p-4 max-h-[calc(100vh-380px)] overflow-y-auto space-y-4">
@@ -373,7 +373,7 @@
           <h2 class="font-semibold">📊 学情驾驶舱</h2>
           <p class="text-xs text-slate-400">基于 BKT 贝叶斯知识追踪算法</p>
         </div>
-        <button onclick="generateReport()" class="px-3 py-1.5 rounded bg-indigo-600 hover:bg-indigo-500 text-xs">🤖 LLM 生成报告</button>
+        <button onclick="generateReport()" class="px-4 py-2 rounded-lg bg-gradient-to-br from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-sm font-medium shadow-lg shadow-indigo-600/25 transition">🤖 LLM 生成报告</button>
       </div>
       <div class="p-4 grid grid-cols-1 md:grid-cols-3 gap-4">
         <div class="bg-slate-900/50 rounded-xl p-4">
