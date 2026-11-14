@@ -99,6 +99,9 @@ class MultimodalService:
                         "messages": messages,
                         "temperature": 0.5,
                     }
+                    # Omni 系列必须显式声明只返回文本，否则会尝试输出音频
+                    if "omni" in model.lower():
+                        payload["modalities"] = ["text"]
                     resp = await client.post(url, headers=headers, json=payload)
                     if resp.status_code == 200:
                         data = resp.json()
