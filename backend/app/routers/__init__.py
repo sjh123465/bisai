@@ -1,5 +1,5 @@
 """路由层 — 按功能模块拆分"""
-from app.routers import chat, knowledge, code, bkt, teacher
+from app.routers import chat, knowledge, code, bkt, teacher, exam, multimodal, wrongbook
 
 routers_list = [
     chat.router,
@@ -7,4 +7,7 @@ routers_list = [
     code.router,
     bkt.router,
     teacher.router,
+    exam.router,
+    multimodal.router,
+    wrongbook.router,
 ]

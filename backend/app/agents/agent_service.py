@@ -11,6 +11,7 @@ from app.services.graphrag_service import get_graphrag
 from app.services.sandbox_service import execute_python
 from app.services.ast_service import analyze_code, features_to_text
 from app.services.bkt_service import get_bkt
+from app.services.graph_service import get_graph
 from app.core.logger import get_logger
 
 logger = get_logger("agent")
@@ -96,6 +97,7 @@ SYSTEM_PROMPT = """你是 CodeMentor，一个懂代码、知图谱、能引导�
 - 支持 Markdown：代码用 ```python 包裹，列表用 -，重点用 **加粗**
 - 引用知识图谱节点时，用 [节点名](graph:节点ID) 格式（前端会自动高亮）
 - 引用文档时，用 > 片段... 引用块
+- **重要**：收到工具结果后，直接以导师身份对学生讲话。绝对不要出现"我拿到了工具结果"、"工具返回了..."、"我查了一下"这类过程性叙述，把工具信息自然融入你的引导中即可
 
 现在开始你的教学吧！"""
 
@@ -104,6 +106,23 @@ class AgentService:
     def __init__(self):
         self.llm = get_llm()
         self.graphrag = get_graphrag()
+
+    # ---------- 多轮对话压缩 ----------
+    async def _summarize_history(self, history: list[dict]) -> str:
+        """对早期对话做摘要，控制 Token 不超限且保留关键上下文"""
+        if not history:
+            return ""
+        text = "\n".join(f"{m['role']}: {m['content'][:300]}" for m in history)
+        messages = [
+            {"role": "system", "content": "你是对话摘要器。请用 3-5 句话总结以下师生对话的核心内容，保留学生问过的关键知识点、代码问题和导师给出的关键引导。"},
+            {"role": "user", "content": text},
+        ]
+        try:
+            resp = await self.llm.chat(messages, temperature=0.2)
+            return resp["choices"][0]["message"]["content"]
+        except Exception as e:
+            logger.error(f"历史摘要失败: {e}")
+            return f"（摘要失败，共 {len(history)} 轮历史对话）"
 
     # ---------- 工具执行 ----------
     async def _run_tool(self, tool_name: str, args: dict) -> str:
@@ -133,18 +152,45 @@ class AgentService:
                 sid = args.get("student_id", "demo_student")
                 topic = args.get("topic", "")
                 bkt = get_bkt()
+                graph = get_graph()
                 mastery = bkt.get_mastery(sid)
+
+                # 1. 找出最薄弱的 3 个知识点
+                weak = sorted(mastery.items(), key=lambda x: x[1])[:3]
+                weak_lines = "\n".join(f"- {k}: {v:.0%}" for k, v in weak) or "（暂无答题数据，默认推荐算法基础）"
+
+                # 2. 结合图谱：为每个薄弱点找前置知识（先补前置再学当前）
+                path_lines = []
+                focus_nodes = []
+                for cid, _ in weak:
+                    node = graph.get_node(cid)
+                    if not node:
+                        matches = graph.search_nodes(cid, top_k=1)
+                        if matches:
+                            cid = matches[0]["id"]
+                            node = matches[0]
+                    if node:
+                        focus_nodes.append(cid)
+                        prereqs = graph.get_upstream(cid)
+                        if prereqs:
+                            names = "、".join(p.get("name", p["id"]) for p in prereqs[:3])
+                            path_lines.append(f"📌 [{node.get('name', cid)}] 前置建议先掌握：{names}")
+                        else:
+                            path_lines.append(f"📌 [{node.get('name', cid)}] 无明确前置，可直接开始")
+
+                # 3. 若用户指定了 topic，额外给出该主题的相关节点
+                topic_lines = ""
                 if topic:
                     path = await self.graphrag.retrieve(topic, graph_depth=1, vector_top_k=2)
-                    nodes = path.get("graph_nodes", [])[:3]
-                    return (
-                        f"📊 学生 {sid} 当前掌握度:\n"
-                        + "\n".join(f"- {k}: {v:.0%}" for k, v in sorted(mastery.items(), key=lambda x: x[1]))
-                        + f"\n\n📚 与 '{topic}' 相关的知识节点:\n"
-                        + "\n".join(f"- [{n['id']}] {n.get('name', n['id'])}" for n in nodes)
+                    nodes = path.get("graph_nodes", [])[:4]
+                    topic_lines = "\n📚 你感兴趣的主题相关节点:\n" + "\n".join(
+                        f"- [{n['id']}] {n.get('name', n['id'])}" for n in nodes
                     )
-                else:
-                    return "请指定一个主题（topic）来获取学习路径"
+
+                return (
+                    f"📊 学生 {sid} 当前最薄弱知识点（掌握度从低到高）:\n{weak_lines}\n\n"
+                    f"🧭 基于知识图谱前置关系的学习路径:\n" + ("\n".join(path_lines) if path_lines else "暂无薄弱节点") + topic_lines
+                )
 
             return f"未知工具: {tool_name}"
         except Exception as e:
@@ -170,7 +216,16 @@ class AgentService:
 
         messages = [{"role": "system", "content": SYSTEM_PROMPT}]
         if history:
-            messages.extend(history[-6:])  # 最近 6 轮，控制 Token
+            # 多轮压缩：超过 8 轮时，对更早的轮次做摘要，保留最近 4 轮原文
+            if len(history) > 8:
+                recent = history[-4:]
+                older = history[:-4]
+                summary = await self._summarize_history(older)
+                messages.append({"role": "user", "content": f"[历史对话摘要]\n{summary}"})
+                messages.append({"role": "assistant", "content": "好的，我已了解之前的对话内容。"})
+                messages.extend(recent)
+            else:
+                messages.extend(history)
         messages.append({"role": "user", "content": current_content})
 
         # 第一轮：LLM 决定是否调工具

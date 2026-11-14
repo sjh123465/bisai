@@ -16,6 +16,11 @@ class Settings(BaseSettings):
     embedding_local: bool = False
     embedding_model: str = "text-embedding-v3"
 
+    # Multimodal（截图答疑，默认复用 LLM 配置；若主模型不支持视觉需单独指定）
+    multimodal_api_key: str = ""
+    multimodal_base_url: str = ""
+    multimodal_model: str = ""
+
     # Sandbox
     sandbox_timeout: int = 5
     sandbox_allowed_langs: str = "python"

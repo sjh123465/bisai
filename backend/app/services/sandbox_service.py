@@ -6,6 +6,7 @@ import subprocess
 import sys
 import os
 import io
+import tempfile
 import contextlib
 from typing import Optional
 from dataclasses import dataclass
@@ -15,9 +16,9 @@ from app.core.logger import get_logger
 logger = get_logger("sandbox")
 
 
-# 危险模块黑名单
+# 危险模块黑名单（sys/io 不拦截，编程题需读 stdin；生产环境用 Docker 强隔离）
 DANGEROUS_MODULES = {
-    "os", "sys", "subprocess", "socket", "http", "https",
+    "os", "subprocess", "socket", "http", "https",
     "ftplib", "smtplib", "telnetlib", "webbrowser",
     "ctypes", "cffi", "dl",
     "pickle", "marshal", "dill",
@@ -127,31 +128,53 @@ def run_test_cases(source: str, test_cases: list[dict]) -> dict:
     test_cases: [{"input": "...", "expected": "..."}]
     返回: {"passed": int, "total": int, "details": [...]}
     """
-    # 检查危险导入
+    # 仅对学生代码做危险模块检测（不影响测试包装器）
     danger = _check_dangerous_imports(source)
     if danger:
         return {"passed": 0, "total": 0, "error": danger, "details": []}
 
     results = []
     passed = 0
+    fd, tmp_file = tempfile.mkstemp(suffix=".py")
+    os.close(fd)
+    try:
+        with open(tmp_file, "w", encoding="utf-8") as f:
+            f.write(source)
 
-    for i, tc in enumerate(test_cases):
-        input_data = tc.get("input", "")
-        expected = tc.get("expected", "")
-        # 把 input 替换为硬编码，避免 subprocess 交互
-        exec_code = f"_input = {repr(input_data)}\nimport sys\nfrom io import StringIO\nsys.stdin = StringIO(_input)\n" + source
-        r = execute_python(exec_code)
-        actual = r.output.strip()
-        is_pass = r.success and actual == expected.strip()
-        if is_pass:
-            passed += 1
-        results.append({
-            "case": i + 1,
-            "input": input_data,
-            "expected": expected,
-            "actual": actual,
-            "passed": is_pass,
-            "error": r.error if not r.success else None,
-        })
+        for i, tc in enumerate(test_cases):
+            input_data = tc.get("input", "")
+            expected = tc.get("expected", "")
+            try:
+                proc = subprocess.run(
+                    [sys.executable, tmp_file],
+                    input=input_data,
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                    env={"PATH": os.environ.get("PATH", ""), "PYTHONIOENCODING": "utf-8"},
+                )
+                actual = (proc.stdout or "").strip()
+                is_pass = proc.returncode == 0 and actual == expected.strip()
+                if is_pass:
+                    passed += 1
+                results.append({
+                    "case": i + 1,
+                    "input": input_data,
+                    "expected": expected,
+                    "actual": actual,
+                    "passed": is_pass,
+                    "error": proc.stderr[:200] if proc.returncode != 0 else None,
+                })
+            except subprocess.TimeoutExpired:
+                results.append({
+                    "case": i + 1, "input": input_data, "expected": expected,
+                    "actual": "", "passed": False, "error": "执行超时",
+                })
+    finally:
+        if os.path.exists(tmp_file):
+            try:
+                os.remove(tmp_file)
+            except Exception:
+                pass
 
     return {"passed": passed, "total": len(test_cases), "details": results}

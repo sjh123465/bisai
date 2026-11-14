@@ -87,18 +87,36 @@ class LLMService:
                         except (json.JSONDecodeError, KeyError):
                             continue
 
+    @staticmethod
+    def _local_hash_embed(texts: list[str]) -> list[list[float]]:
+        """零依赖本地 Embedding：字符 bigram 哈希到 384 维并 L2 归一化
+        确定性 + 词法敏感：相似文本共享 bigram → 有余弦重叠，可支撑基础向量检索
+        """
+        import hashlib
+        import math
+        vecs = []
+        for text in texts:
+            v = [0.0] * 384
+            t = text.lower().replace(" ", "").replace("\n", "")
+            grams = [t[i:i + 2] for i in range(len(t) - 1)] or list(t) or ["empty"]
+            for g in grams:
+                h = int(hashlib.md5(g.encode("utf-8")).hexdigest(), 16)
+                v[h % 384] += 1.0
+            norm = math.sqrt(sum(x * x for x in v)) or 1.0
+            vecs.append([x / norm for x in v])
+        return vecs
+
     async def embed(self, texts: list[str]) -> list[list[float]]:
-        """获取文本 embedding — API Key 为空时用随机向量降级"""
-        import random
+        """获取文本 embedding — API 失败时降级为本地哈希向量"""
         if self.cfg.embedding_local:
             from sentence_transformers import SentenceTransformer
             model = SentenceTransformer("all-MiniLM-L6-v2")
             return model.encode(texts).tolist()
 
-        # 无 API Key → 降级：随机向量（384 维）
+        # 无 API Key → 直接本地哈希向量
         if not self.cfg.llm_api_key:
-            logger.warning("⚠️ 无 API Key，Embedding 用随机向量占位")
-            return [[random.uniform(-0.5, 0.5) for _ in range(384)] for _ in texts]
+            logger.warning("⚠️ 无 API Key，Embedding 用本地哈希向量")
+            return self._local_hash_embed(texts)
 
         try:
             url = f"{self.cfg.embedding_base_url().rstrip('/')}/embeddings"
@@ -113,13 +131,14 @@ class LLMService:
             async with httpx.AsyncClient(timeout=httpx.Timeout(30.0)) as client:
                 resp = await client.post(url, headers=headers, json=payload)
                 if resp.status_code != 200:
-                    logger.error(f"Embedding 失败: {resp.status_code}")
-                    return [[random.uniform(-0.5, 0.5) for _ in range(384)] for _ in texts]
+                    # DeepSeek 等 Chat 服务无 /embeddings 接口 → 降级本地哈希
+                    logger.warning(f"Embedding API 不可用({resp.status_code})，降级为本地哈希向量")
+                    return self._local_hash_embed(texts)
                 data = resp.json()
                 return [item["embedding"] for item in data["data"]]
         except Exception as e:
-            logger.error(f"Embedding 异常: {e}")
-            return [[random.uniform(-0.5, 0.5) for _ in range(384)] for _ in texts]
+            logger.error(f"Embedding 异常: {e}，降级为本地哈希向量")
+            return self._local_hash_embed(texts)
 
 
 # 单例

@@ -38,6 +38,8 @@
   .prose-cm blockquote { border-left: 3px solid #6366f1; padding-left: 0.75rem; margin: 0.5rem 0; color: #94a3b8; background: rgba(99, 102, 241, 0.1); padding: 0.5rem 0.75rem; border-radius: 0 0.375rem 0.375rem 0; }
   .prose-cm strong { color: #fbbf24; }
   .prose-cm hr { border-color: #475569; margin: 0.75rem 0; }
+  .prose-cm .graph-chip { display: inline-flex; align-items: center; gap: 0.25rem; background: linear-gradient(135deg, rgba(99,102,241,0.25), rgba(168,85,247,0.25)); border: 1px solid rgba(99,102,241,0.4); color: #c7d2fe; padding: 0.1rem 0.5rem; border-radius: 9999px; font-size: 0.8em; cursor: pointer; transition: all 0.2s; margin: 0 0.15rem; }
+  .prose-cm .graph-chip:hover { background: rgba(99,102,241,0.45); transform: translateY(-1px); }
 
   .graph-node { fill: #6366f1; stroke: #818cf8; stroke-width: 2; cursor: pointer; transition: all 0.2s; }
   .graph-node:hover { fill: #818cf8; stroke-width: 3; }
@@ -73,6 +75,7 @@
         <span>连接中...</span>
       </span>
       <button onclick="switchTab('chat')" id="tab-chat" class="px-3 py-1 rounded-md bg-indigo-600 text-white text-sm">💬 对话</button>
+      <button onclick="switchTab('practice')" id="tab-practice" class="px-3 py-1 rounded-md bg-slate-700/70 text-slate-300 text-sm hover:bg-slate-600">📝 练一练</button>
       <button onclick="switchTab('graph')" id="tab-graph" class="px-3 py-1 rounded-md bg-slate-700/70 text-slate-300 text-sm hover:bg-slate-600">🗺️ 图谱</button>
       <button onclick="switchTab('teacher')" id="tab-teacher" class="px-3 py-1 rounded-md bg-slate-700/70 text-slate-300 text-sm hover:bg-slate-600">📊 学情</button>
     </div>
@@ -109,8 +112,10 @@
 
       <!-- 输入区 -->
       <div class="border-t border-slate-700/50 p-3 bg-slate-800/30">
-        <div class="flex gap-2 mb-2 text-xs">
+        <div class="flex gap-2 mb-2 text-xs flex-wrap items-center">
           <button onclick="toggleCodePanel()" class="px-2 py-1 rounded bg-slate-700/70 text-slate-300 hover:bg-slate-600">📎 附加代码</button>
+          <button onclick="document.getElementById('img-upload').click()" class="px-2 py-1 rounded bg-slate-700/70 text-slate-300 hover:bg-slate-600">🖼️ 截图提问</button>
+          <input type="file" id="img-upload" accept="image/*" class="hidden" onchange="uploadImage(event)">
           <span class="text-slate-500 px-2 py-1">|</span>
           <button onclick="sendQuick('什么是红黑树？')" class="px-2 py-1 rounded bg-slate-700/50 text-slate-400 hover:text-slate-200">🔖 什么是红黑树？</button>
           <button onclick="sendQuick('快速排序为什么会超时？')" class="px-2 py-1 rounded bg-slate-700/50 text-slate-400 hover:text-slate-200">🔖 快排超时排查</button>
@@ -123,6 +128,47 @@
           <button onclick="sendMessage()" id="send-btn" class="px-6 py-3 rounded-xl bg-gradient-to-br from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 font-medium transition disabled:opacity-50">
             发送 ➤
           </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 练一练 Tab -->
+    <div id="panel-practice" class="bg-slate-800/50 rounded-2xl border border-slate-700/50 overflow-hidden backdrop-blur hidden">
+      <div class="p-4 border-b border-slate-700/50">
+        <h2 class="font-semibold mb-2">📝 AI 智能出题 + 双轨批改</h2>
+        <div class="flex flex-wrap gap-2 items-center">
+          <select id="exam-concept" class="bg-slate-900 border border-slate-600 rounded-lg px-3 py-1.5 text-sm"></select>
+          <select id="exam-type" class="bg-slate-900 border border-slate-600 rounded-lg px-3 py-1.5 text-sm">
+            <option value="any">任意题型</option>
+            <option value="choice">选择题</option>
+            <option value="judge">判断题</option>
+            <option value="code">编程题</option>
+          </select>
+          <button onclick="generateQuestion()" class="px-4 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-sm">🎲 生成题目</button>
+        </div>
+      </div>
+      <div class="p-4 max-h-[calc(100vh-380px)] overflow-y-auto space-y-4">
+        <div id="exam-question" class="hidden bg-slate-900/50 rounded-xl p-4 border border-slate-700/50">
+          <div class="flex items-center gap-2 mb-2">
+            <span id="exam-type-badge" class="text-xs px-2 py-0.5 rounded bg-indigo-600/30 text-indigo-300"></span>
+            <span id="exam-concept-badge" class="text-xs px-2 py-0.5 rounded bg-slate-700 text-slate-400"></span>
+          </div>
+          <div id="exam-question-text" class="text-slate-100 mb-3"></div>
+          <div id="exam-options" class="space-y-1.5 mb-3"></div>
+          <div id="exam-hint" class="hidden text-xs text-amber-300/80 bg-amber-500/10 rounded p-2 mb-3"></div>
+          <div id="exam-code-area" class="hidden">
+            <textarea id="exam-student-code" placeholder="# 在这里写你的答案..."
+              class="w-full h-44 p-3 bg-slate-950 text-emerald-200 font-mono text-sm resize-none outline-none rounded-lg border border-slate-700" spellcheck="false"></textarea>
+            <div class="mt-3 flex gap-2">
+              <button onclick="gradeQuestion()" class="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-sm">✅ 提交批改</button>
+              <button onclick="showHint()" class="px-4 py-2 rounded-lg bg-amber-600/70 hover:bg-amber-500 text-sm">💡 查看提示</button>
+            </div>
+          </div>
+        </div>
+        <div id="exam-result" class="hidden space-y-3"></div>
+        <div id="exam-empty" class="text-center py-12 text-slate-500">
+          <div class="text-5xl mb-3">📝</div>
+          <p>选择知识点后点击「生成题目」开始练习</p>
         </div>
       </div>
     </div>
@@ -279,7 +325,7 @@
 
   // ---------- Tab 切换 ----------
   function switchTab(name) {
-    ['chat','graph','teacher'].forEach(t => {
+    ['chat','practice','graph','teacher'].forEach(t => {
       const p = document.getElementById('panel-' + t);
       const b = document.getElementById('tab-' + t);
       if (t === name) {
@@ -292,6 +338,34 @@
     });
     if (name === 'graph') loadGraph();
     if (name === 'teacher') loadTeacher();
+    if (name === 'practice') loadExamConcepts();
+  }
+
+  // ---------- 消息渲染增强（工具徽章 + 图谱节点卡片） ----------
+  function renderContent(content) {
+    content = content || '';
+    // 1. 移除 thinking 注释
+    content = content.replace(/<!--thinking:[\s\S]*?-->/g, '');
+    // 2. 提取工具调用行，转成徽章
+    const tools = [];
+    content = content.replace(/>\s*\*📎\s*工具\s*`([^`]+)`[^*\n]*\*/g, (m, t) => { tools.push(t); return `__TOOL${tools.length-1}__`; });
+    // 3. Markdown 渲染
+    let html = marked.parse(content);
+    // 4. [text](graph:id) → 可点击图谱节点卡片
+    html = html.replace(/<a href="graph:([^"]+)">([^<]+)<\/a>/g,
+      (m, id, text) => `<span class="graph-chip" onclick="askAboutGraph('${id}')" title="点击就该知识点提问">🏷️ ${text}</span>`);
+    // 5. 插入工具徽章
+    tools.forEach((t, i) => {
+      html = html.replace(`__TOOL${i}__`,
+        `<span class="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">🔧 工具: ${t}</span><br>`);
+    });
+    return html;
+  }
+
+  function askAboutGraph(nodeId) {
+    switchTab('chat');
+    document.getElementById('user-input').value = `请详细讲解一下「${nodeId}」这个知识点`;
+    sendMessage();
   }
 
   // ---------- 消息渲染 ----------
@@ -318,7 +392,7 @@
       bubble.textContent = content;
     } else {
       bubble.classList.remove('typing-cursor');
-      bubble.innerHTML = marked.parse(content);
+      bubble.innerHTML = renderContent(content);
     }
   }
 
@@ -658,10 +732,198 @@
   setTimeout(() => {
     // 默认欢迎消息
     addMessage('assistant',
-      '👋 你好！我是 **CodeMentor**，你的 AI 编程导师。\n\n我可以帮你：\n\n- 📖 **理论问答** — 问我任何计算机知识点\n- 🐛 **代码调试** — 贴你的代码，我会跑沙箱 + AST 分析\n- 📚 **学习路径** — 基于你的薄弱点推荐内容\n\n试试告诉我：**"红黑树和 AVL 树有什么区别？"**',
+      '👋 你好！我是 **CodeMentor**，你的 AI 编程导师。\n\n我可以帮你：\n\n- 📖 **理论问答** — 问我任何计算机知识点\n- 🐛 **代码调试** — 贴你的代码，我会跑沙箱 + AST 分析\n- 📝 **出题批改** — 切到「练一练」Tab，AI 出题 + 双轨批改\n- 📚 **学习路径** — 基于你的薄弱点推荐内容\n\n试试告诉我：**"红黑树和 AVL 树有什么区别？"**',
       false
     );
   }, 300);
+
+  // ==================== 练一练：出题 + 批改 ====================
+  let currentQuestion = null;
+
+  async function loadExamConcepts() {
+    const sel = document.getElementById('exam-concept');
+    if (sel.options.length > 1) return;
+    try {
+      const g = await fetch('/api/knowledge/graph').then(r => r.json());
+      const nodes = (g.nodes || []).filter(n => n.category !== 'chapter').sort((a, b) => a.name.localeCompare(b.name, 'zh'));
+      nodes.forEach(n => {
+        const o = document.createElement('option');
+        o.value = n.id;
+        o.textContent = `${n.name}（${n.category}）`;
+        sel.appendChild(o);
+      });
+    } catch (e) { console.error(e); }
+  }
+
+  async function generateQuestion() {
+    const concept = document.getElementById('exam-concept').value;
+    const qtype = document.getElementById('exam-type').value;
+    if (!concept) { alert('请先选择知识点'); return; }
+    const q = document.getElementById('exam-question');
+    const empty = document.getElementById('exam-empty');
+    const result = document.getElementById('exam-result');
+    empty.classList.add('hidden');
+    result.classList.add('hidden');
+    q.classList.add('hidden');
+    const btn = event.target;
+    btn.disabled = true; btn.textContent = '🎲 生成中...';
+    try {
+      const data = await fetch('/api/exam/generate', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({concept, qtype})
+      }).then(r => r.json());
+      if (data.error) { alert(data.error); return; }
+      currentQuestion = data;
+      renderQuestion(data);
+    } catch (e) { alert('生成失败: ' + e); }
+    finally { btn.disabled = false; btn.textContent = '🎲 生成题目'; }
+  }
+
+  function renderQuestion(q) {
+    document.getElementById('exam-question').classList.remove('hidden');
+    document.getElementById('exam-empty').classList.add('hidden');
+    const typeMap = {choice:'选择题', judge:'判断题', code:'编程题'};
+    document.getElementById('exam-type-badge').textContent = typeMap[q.type] || q.type;
+    document.getElementById('exam-concept-badge').textContent = q.concept;
+    document.getElementById('exam-question-text').innerHTML = marked.parse(q.question);
+    document.getElementById('exam-hint').classList.add('hidden');
+
+    const opts = document.getElementById('exam-options');
+    opts.innerHTML = '';
+    const codeArea = document.getElementById('exam-code-area');
+    codeArea.classList.add('hidden');
+    document.getElementById('exam-student-code').value = '';
+
+    if (q.type === 'choice' && q.options) {
+      q.options.forEach((o, i) => {
+        const btn = document.createElement('button');
+        btn.className = 'w-full text-left px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-600 text-sm';
+        btn.textContent = o;
+        btn.onclick = () => checkChoice(btn, q, o);
+        opts.appendChild(btn);
+      });
+    } else if (q.type === 'judge') {
+      ['✅ 正确', '❌ 错误'].forEach((label, i) => {
+        const btn = document.createElement('button');
+        btn.className = 'px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-600 text-sm';
+        btn.textContent = label;
+        btn.onclick = () => checkJudge(btn, q, i === 0);
+        opts.appendChild(btn);
+      });
+    } else if (q.type === 'code') {
+      codeArea.classList.remove('hidden');
+      if (q.test_cases) {
+        const tc = document.createElement('div');
+        tc.className = 'text-xs text-slate-400 mt-2';
+        tc.innerHTML = `📦 测试用例（${q.test_cases.length} 组）：<br>` +
+          q.test_cases.slice(0, 3).map(c => `输入: \`${c.input.replace(/\n/g,' ')}\` → 期望: \`${c.expected}\``).join('<br>');
+        opts.appendChild(tc);
+      }
+    }
+  }
+
+  function showHint() {
+    if (currentQuestion && currentQuestion.hint) {
+      const h = document.getElementById('exam-hint');
+      h.innerHTML = '💡 ' + currentQuestion.hint;
+      h.classList.remove('hidden');
+    }
+  }
+
+  function checkChoice(btn, q, selected) {
+    const correct = selected.startsWith(q.answer);
+    btn.className = correct ? 'w-full text-left px-3 py-2 rounded-lg bg-emerald-700/50 border border-emerald-500 text-sm'
+                              : 'w-full text-left px-3 py-2 rounded-lg bg-rose-700/50 border border-rose-500 text-sm';
+    showResult(q, correct ? '通过' : '不通过', q.explanation);
+  }
+
+  function checkJudge(btn, q, val) {
+    const correct = (val === q.answer);
+    showResult(q, correct ? '通过' : '不通过', q.explanation);
+  }
+
+  async function gradeQuestion() {
+    const code = document.getElementById('exam-student-code').value.trim();
+    if (!code) { alert('请先写代码'); return; }
+    if (!currentQuestion) return;
+    const btn = event.target;
+    btn.disabled = true; btn.textContent = '⏳ 批改中...';
+    document.getElementById('exam-result').classList.add('hidden');
+    try {
+      const data = await fetch('/api/exam/grade', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({code, test_cases: currentQuestion.test_cases || [], concept_id: currentQuestion.concept_id})
+      }).then(r => r.json());
+      renderGradeResult(data, code);
+    } catch (e) { alert('批改失败: ' + e); }
+    finally { btn.disabled = false; btn.textContent = '✅ 提交批改'; }
+  }
+
+  function showResult(q, verdict, explanation) {
+    const r = document.getElementById('exam-result');
+    r.classList.remove('hidden');
+    r.innerHTML = `
+      <div class="bg-slate-900/50 rounded-xl p-4 border border-slate-700/50">
+        <div class="font-semibold mb-2 ${verdict==='通过'?'text-emerald-400':'text-rose-400'}">
+          ${verdict==='通过'?'✅ 回答正确':'❌ 回答错误'}
+        </div>
+        <div class="text-sm text-slate-300">${explanation || ''}</div>
+      </div>`;
+  }
+
+  function renderGradeResult(data, code) {
+    const r = document.getElementById('exam-result');
+    r.classList.remove('hidden');
+    const review = data.review || {};
+    const sb = data.sandbox_track || {};
+    const ast = data.ast_track || {};
+    r.innerHTML = `
+      <div class="bg-slate-900/50 rounded-xl p-4 border border-slate-700/50 space-y-3">
+        <div class="flex items-center gap-3">
+          <span class="text-lg font-bold ${(review.correctness_score||0)>=60?'text-emerald-400':'text-rose-400'}">${review.correctness || '判定中'}</span>
+          <span class="text-xs px-2 py-0.5 rounded bg-indigo-500/20 text-indigo-300">正确性 ${review.correctness_score ?? '-'}/100</span>
+          <span class="text-xs px-2 py-0.5 rounded bg-amber-500/20 text-amber-300">规范 ${review.style_score ?? '-'}/100</span>
+        </div>
+        ${sb.total ? `<div class="text-sm text-slate-400">🧪 沙箱通过率: <b class="text-emerald-400">${sb.passed}/${sb.total}</b></div>` : ''}
+        <div class="text-sm text-slate-400">${data.ast_text || ''}</div>
+        ${review.complexity_analysis ? `<div class="text-sm"><b class="text-purple-300">复杂度分析：</b>${review.complexity_analysis}</div>` : ''}
+        ${(review.bugs||[]).length ? `<div class="text-sm"><b class="text-rose-300">🐛 问题：</b><ul class="list-disc ml-5">${review.bugs.map(b=>`<li>${b}</li>`).join('')}</ul></div>` : ''}
+        ${(review.suggestions||[]).length ? `<div class="text-sm"><b class="text-emerald-300">💡 建议：</b><ul class="list-disc ml-5">${review.suggestions.map(s=>`<li>${s}</li>`).join('')}</ul></div>` : ''}
+        ${review.encouragement ? `<div class="text-sm text-amber-200 italic">${review.encouragement}</div>` : ''}
+      </div>`;
+  }
+
+  // ==================== 多模态截图提问 ====================
+  async function uploadImage(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+      const b64 = e.target.result.split(',')[1];
+      const wrap = addMessage('user', `[图片] ${file.name}`, false);
+      // 直接在用户消息后追加图片预览
+      const bubble = wrap.querySelector('.prose-cm');
+      bubble.innerHTML = `<div class="text-right"><div class="text-xs text-slate-300 mb-1">🖼️ 上传图片：${file.name}</div><img src="${e.target.result}" class="max-w-xs rounded-lg inline-block" /></div>`;
+
+      const q = document.getElementById('user-input').value.trim() || '这张图里有什么算法或数据结构？请详细讲解。';
+      const aiWrap = addMessage('assistant', '🔍 正在识别图片...', true);
+      try {
+        const res = await fetch('/api/multimodal/analyze', {
+          method: 'POST', headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({image: b64, question: q})
+        }).then(r => r.json());
+        if (res.ok) {
+          updateMessage(aiWrap, res.answer, false);
+        } else {
+          updateMessage(aiWrap, `⚠️ ${res.message || '多模态调用失败'}`, false);
+        }
+      } catch (err) {
+        updateMessage(aiWrap, `❌ 调用失败: ${err}`, false);
+      }
+    };
+    reader.readAsDataURL(file);
+    event.target.value = '';
+  }
 </script>
 </body>
 </html>
