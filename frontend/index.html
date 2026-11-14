@@ -55,6 +55,27 @@
 
   .pulse-dot { width: 8px; height: 8px; border-radius: 50%; background: #10b981; animation: pulse 2s infinite; display: inline-block; }
   @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+
+  /* Tab 切换淡入 */
+  .tab-panel { animation: fadeIn 0.25s ease-out; }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+
+  /* 快捷问题胶囊 */
+  .quick-chip { transition: all 0.2s cubic-bezier(.4,0,.2,1); }
+  .quick-chip:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(99,102,241,0.25); }
+
+  /* 统计数字动画 */
+  .stat-num { font-variant-numeric: tabular-nums; }
+  .stat-card { transition: all 0.2s ease; }
+  .stat-card:hover { transform: translateY(-2px); border-color: rgba(99,102,241,0.5); }
+
+  /* 消息气泡进场 */
+  .chat-msg { animation: slideUp 0.3s ease-out; }
+  @keyframes slideUp { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+
+  /* 登录弹窗进场 */
+  .modal-fade-in { animation: modalIn 0.2s ease-out; }
+  @keyframes modalIn { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
 </style>
 </head>
 <body class="text-slate-100">
@@ -92,7 +113,7 @@
   <section class="lg:col-span-8 space-y-4">
 
     <!-- 对话主界面 -->
-    <div id="panel-chat" class="bg-slate-800/50 rounded-2xl border border-slate-700/50 overflow-hidden backdrop-blur">
+    <div id="panel-chat" class="tab-panel bg-slate-800/50 rounded-2xl border border-slate-700/50 overflow-hidden backdrop-blur">
       <!-- 消息流 -->
       <div id="chat-messages" class="h-[calc(100vh-360px)] min-h-[400px] overflow-y-auto p-4 space-y-4"></div>
 
@@ -121,9 +142,11 @@
           <button onclick="document.getElementById('img-upload').click()" class="px-2 py-1 rounded bg-slate-700/70 text-slate-300 hover:bg-slate-600">🖼️ 截图提问</button>
           <input type="file" id="img-upload" accept="image/*" class="hidden" onchange="uploadImage(event)">
           <span class="text-slate-500 px-2 py-1">|</span>
-          <button onclick="sendQuick('什么是红黑树？')" class="px-2 py-1 rounded bg-slate-700/50 text-slate-400 hover:text-slate-200">🔖 什么是红黑树？</button>
-          <button onclick="sendQuick('快速排序为什么会超时？')" class="px-2 py-1 rounded bg-slate-700/50 text-slate-400 hover:text-slate-200">🔖 快排超时排查</button>
-          <button onclick="sendQuick('图论我应该先学什么？')" class="px-2 py-1 rounded bg-slate-700/50 text-slate-400 hover:text-slate-200">🔖 学习路径推荐</button>
+          <button onclick="sendQuick('什么是红黑树？')" class="quick-chip px-2.5 py-1 rounded-full bg-slate-700/50 text-slate-400 hover:text-indigo-300 border border-slate-600/50 text-xs">🔖 什么是红黑树？</button>
+          <button onclick="sendQuick('快速排序为什么会超时？')" class="quick-chip px-2.5 py-1 rounded-full bg-slate-700/50 text-slate-400 hover:text-indigo-300 border border-slate-600/50 text-xs">🔖 快排超时排查</button>
+          <button onclick="sendQuick('图论我应该先学什么？')" class="quick-chip px-2.5 py-1 rounded-full bg-slate-700/50 text-slate-400 hover:text-indigo-300 border border-slate-600/50 text-xs">🔖 学习路径推荐</button>
+          <button onclick="sendQuick('请总结一下动态规划的核心思想')" class="quick-chip px-2.5 py-1 rounded-full bg-slate-700/50 text-slate-400 hover:text-indigo-300 border border-slate-600/50 text-xs">🔖 动态规划核心</button>
+          <button onclick="sendQuick('帮我分析这段代码的时间复杂度')" class="quick-chip px-2.5 py-1 rounded-full bg-slate-700/50 text-slate-400 hover:text-indigo-300 border border-slate-600/50 text-xs">🔖 代码复杂度分析</button>
         </div>
         <div class="flex gap-2">
           <textarea id="user-input" rows="2" placeholder="问我任何计算机知识 — 理论、代码、算法... 我会调用工具帮你"
@@ -137,7 +160,7 @@
     </div>
 
     <!-- 练一练 Tab -->
-    <div id="panel-practice" class="bg-slate-800/50 rounded-2xl border border-slate-700/50 overflow-hidden backdrop-blur hidden">
+    <div id="panel-practice" class="tab-panel bg-slate-800/50 rounded-2xl border border-slate-700/50 overflow-hidden backdrop-blur hidden">
       <div class="p-4 border-b border-slate-700/50">
         <h2 class="font-semibold mb-2">📝 AI 智能出题 + 双轨批改</h2>
         <div class="flex flex-wrap gap-2 items-center">
@@ -185,7 +208,7 @@
     </div>
 
     <!-- 图谱 Tab -->
-    <div id="panel-graph" class="bg-slate-800/50 rounded-2xl border border-slate-700/50 overflow-hidden backdrop-blur hidden">
+    <div id="panel-graph" class="tab-panel bg-slate-800/50 rounded-2xl border border-slate-700/50 overflow-hidden backdrop-blur hidden">
       <div class="px-4 py-3 border-b border-slate-700/50 flex items-center justify-between">
         <div>
           <h2 class="font-semibold">🗺️ 计算机学科知识图谱</h2>
@@ -195,11 +218,11 @@
           <button onclick="loadGraph()" class="px-3 py-1.5 rounded bg-indigo-600 hover:bg-indigo-500">🔄 刷新</button>
         </div>
       </div>
-      <svg id="graph-svg" width="100%" height="600" class="bg-slate-900/50"></svg>
+      <svg id="graph-svg" width="100%" height="calc(100vh - 420px)" class="min-h-[400px] bg-slate-900/50"></svg>
     </div>
 
     <!-- 学情 Tab -->
-    <div id="panel-teacher" class="bg-slate-800/50 rounded-2xl border border-slate-700/50 overflow-hidden backdrop-blur hidden">
+    <div id="panel-teacher" class="tab-panel bg-slate-800/50 rounded-2xl border border-slate-700/50 overflow-hidden backdrop-blur hidden">
       <div class="px-4 py-3 border-b border-slate-700/50 flex items-center justify-between">
         <div>
           <h2 class="font-semibold">📊 学情驾驶舱</h2>
@@ -258,38 +281,32 @@
       </div>
     </div>
 
-    <!-- 系统概览 -->
+    <!-- 动态仪表盘 -->
     <div class="bg-slate-800/50 rounded-2xl border border-slate-700/50 p-4 backdrop-blur">
-      <h3 class="font-semibold mb-3 flex items-center gap-2">⚡ 系统能力</h3>
-      <div class="space-y-2 text-xs">
-        <div class="flex items-center gap-2 p-2 rounded-lg bg-slate-900/50">
-          <span class="w-6 h-6 rounded bg-indigo-600/20 flex items-center justify-center text-indigo-400">🧠</span>
-          <div class="flex-1">
-            <div class="font-medium text-slate-200">Agent Function Calling</div>
-            <div class="text-slate-500">自动识别意图，调度工具</div>
-          </div>
+      <div class="flex items-center justify-between mb-3">
+        <h3 class="font-semibold flex items-center gap-2">⚡ 实时数据</h3>
+        <button onclick="refreshDashboard()" class="text-xs text-slate-400 hover:text-indigo-300 transition" title="刷新数据">🔄</button>
+      </div>
+      <div class="grid grid-cols-2 gap-2">
+        <div class="stat-card bg-gradient-to-br from-indigo-500/15 to-purple-500/15 border border-indigo-500/20 rounded-lg p-3">
+          <div class="text-[10px] text-slate-400 mb-1">图谱节点</div>
+          <div id="stat-nodes" class="stat-num text-xl font-bold text-indigo-300">-</div>
         </div>
-        <div class="flex items-center gap-2 p-2 rounded-lg bg-slate-900/50">
-          <span class="w-6 h-6 rounded bg-purple-600/20 flex items-center justify-center text-purple-400">🔗</span>
-          <div class="flex-1">
-            <div class="font-medium text-slate-200">GraphRAG 双引擎</div>
-            <div class="text-slate-500">Neo4j + Milvus → NetworkX + ChromaDB</div>
-          </div>
+        <div class="stat-card bg-gradient-to-br from-emerald-500/15 to-teal-500/15 border border-emerald-500/20 rounded-lg p-3">
+          <div class="text-[10px] text-slate-400 mb-1">知识关联</div>
+          <div id="stat-edges" class="stat-num text-xl font-bold text-emerald-300">-</div>
         </div>
-        <div class="flex items-center gap-2 p-2 rounded-lg bg-slate-900/50">
-          <span class="w-6 h-6 rounded bg-emerald-600/20 flex items-center justify-center text-emerald-400">⚙️</span>
-          <div class="flex-1">
-            <div class="font-medium text-slate-200">AST 双轨批改</div>
-            <div class="text-slate-500">静态特征 + LLM 解释</div>
-          </div>
+        <div class="stat-card bg-gradient-to-br from-amber-500/15 to-orange-500/15 border border-amber-500/20 rounded-lg p-3">
+          <div class="text-[10px] text-slate-400 mb-1">薄弱知识点</div>
+          <div id="stat-weak" class="stat-num text-xl font-bold text-amber-300">-</div>
         </div>
-        <div class="flex items-center gap-2 p-2 rounded-lg bg-slate-900/50">
-          <span class="w-6 h-6 rounded bg-amber-600/20 flex items-center justify-center text-amber-400">🎯</span>
-          <div class="flex-1">
-            <div class="font-medium text-slate-200">BKT 知识追踪</div>
-            <div class="text-slate-500">贝叶斯算法计算掌握度</div>
-          </div>
+        <div class="stat-card bg-gradient-to-br from-rose-500/15 to-pink-500/15 border border-rose-500/20 rounded-lg p-3">
+          <div class="text-[10px] text-slate-400 mb-1">活跃学生</div>
+          <div id="stat-students" class="stat-num text-xl font-bold text-rose-300">-</div>
         </div>
+      </div>
+      <div class="mt-3 pt-3 border-t border-slate-700/50 text-[10px] text-slate-500 flex items-center gap-1.5">
+        <span class="pulse-dot"></span> 每 30 秒自动刷新 · 后端在线
       </div>
     </div>
 
@@ -353,15 +370,47 @@
     return resp;
   };
 
-  function openLogin() { document.getElementById('login-modal').classList.remove('hidden'); }
+  function openLogin() {
+    document.getElementById('login-modal').classList.remove('hidden');
+    setTimeout(() => document.getElementById('login-user').focus(), 100);
+  }
   function closeLogin() { document.getElementById('login-modal').classList.add('hidden'); }
 
   function showLoginHint(msg) {
     openLogin();
     const el = document.getElementById('login-msg');
-    el.textContent = msg;
-    el.className = 'text-xs text-amber-400 mb-3';
+    el.textContent = '⚠️ ' + msg;
+    el.classList.remove('hidden');
   }
+
+  function fillDemo(role) {
+    const u = document.getElementById('login-user');
+    const p = document.getElementById('login-pass');
+    const r = document.getElementById('login-role');
+    u.value = role; p.value = '123456'; r.value = role;
+    u.focus();
+    document.getElementById('login-msg').classList.add('hidden');
+  }
+
+  // ---------- 全局快捷键 ----------
+  document.addEventListener('keydown', (e) => {
+    // Esc 关闭弹窗
+    if (e.key === 'Escape') {
+      closeLogin();
+    }
+    // Ctrl+Enter / Cmd+Enter 发送消息
+    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter' && !document.getElementById('login-modal').classList.contains('hidden')) {
+      doLogin('login'); return;
+    }
+  });
+
+  // 登录输入框 Enter 提交
+  ['login-user', 'login-pass'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') doLogin('login');
+    });
+  });
 
   function refreshUserUI() {    const token = localStorage.getItem('cm_token');
     const user = localStorage.getItem('cm_user');
@@ -1062,7 +1111,36 @@
       '👋 你好！我是 **CodeMentor**，你的 AI 编程导师。\n\n我可以帮你：\n\n- 📖 **理论问答** — 问我任何计算机知识点\n- 🐛 **代码调试** — 贴你的代码，我会跑沙箱 + AST 分析\n- 📝 **出题批改** — 切到「练一练」Tab，AI 出题 + 双轨批改\n- 📚 **学习路径** — 基于你的薄弱点推荐内容\n\n试试告诉我：**"红黑树和 AVL 树有什么区别？"**',
       false
     );
+    // 加载右侧仪表盘
+    refreshDashboard();
   }, 300);
+
+  // ---------- 右侧动态仪表盘 ----------
+  async function refreshDashboard() {
+    try {
+      const [g, bkt] = await Promise.all([
+        fetch('/api/knowledge/graph').then(r => r.json()).catch(() => null),
+        fetch('/api/bkt/mastery/123').then(r => r.json()).catch(() => null),
+      ]);
+      if (g) {
+        document.getElementById('stat-nodes').textContent = g.nodes?.length ?? '-';
+        document.getElementById('stat-edges').textContent = g.edges?.length ?? '-';
+      }
+      // 用 /api/teacher/dashboard 获取薄弱点和学生数（需要登录，失败就跳过）
+      try {
+        const t = await fetch('/api/teacher/dashboard');
+        if (t.ok) {
+          const d = await t.json();
+          document.getElementById('stat-students').textContent = d.class_summary?.total_students ?? '-';
+          const heatmap = d.heatmap || {};
+          const weak = Object.values(heatmap).filter(h => h.avg < 0.6).length;
+          document.getElementById('stat-weak').textContent = weak;
+        }
+      } catch (_) { /* 未登录时静默 */ }
+    } catch (e) { console.warn('仪表盘数据加载失败:', e); }
+  }
+  // 每 30 秒自动刷新
+  setInterval(refreshDashboard, 30000);
 
   // ==================== 练一练：出题 + 批改 ====================
   let currentQuestion = null;
@@ -1398,23 +1476,35 @@
 </script>
 
 <!-- ============ 登录弹窗 ============ -->
-<div id="login-modal" class="hidden fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm">
-  <div class="w-[380px] bg-slate-900 border border-slate-700 rounded-2xl p-6 shadow-2xl">
+<div id="login-modal" class="hidden fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm" onclick="if(event.target===this)closeLogin()">
+  <div class="modal-fade-in w-[400px] bg-gradient-to-b from-slate-900 to-slate-950 border border-slate-700/80 rounded-2xl p-6 shadow-2xl">
     <div class="flex items-center justify-between mb-5">
-      <h2 class="text-lg font-bold">🔐 登录 CodeMentor</h2>
-      <button onclick="closeLogin()" class="text-slate-400 hover:text-white text-xl leading-none">×</button>
+      <div class="flex items-center gap-2">
+        <div class="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center font-bold text-white text-sm">C</div>
+        <h2 class="text-lg font-bold">🔐 登录 CodeMentor</h2>
+      </div>
+      <button onclick="closeLogin()" class="text-slate-400 hover:text-white text-xl leading-none w-7 h-7 rounded hover:bg-slate-800">×</button>
     </div>
-    <div id="login-msg" class="text-xs text-slate-400 mb-3">演示账号：teacher/123456（教师）· student/123456（学生）</div>
-    <input id="login-user" placeholder="用户名" class="w-full mb-3 px-3 py-2 rounded-lg bg-slate-800 border border-slate-600 text-sm focus:outline-none focus:border-indigo-400" />
-    <input id="login-pass" type="password" placeholder="密码" class="w-full mb-3 px-3 py-2 rounded-lg bg-slate-800 border border-slate-600 text-sm focus:outline-none focus:border-indigo-400" />
-    <select id="login-role" class="w-full mb-4 px-3 py-2 rounded-lg bg-slate-800 border border-slate-600 text-sm focus:outline-none focus:border-indigo-400">
-      <option value="student">学生角色（注册）</option>
-      <option value="teacher">教师角色（注册）</option>
+    <div id="login-msg" class="hidden text-xs text-amber-400 mb-3 bg-amber-500/10 border border-amber-500/30 rounded-lg p-2"></div>
+    <div class="grid grid-cols-2 gap-2 mb-3">
+      <button onclick="fillDemo('teacher')" class="group px-3 py-2 rounded-lg bg-indigo-500/10 border border-indigo-500/30 text-xs text-indigo-300 hover:bg-indigo-500/20 transition">
+        <span class="font-medium">👩‍🏫 教师演示</span><br><span class="text-[10px] text-slate-500">teacher / 123456</span>
+      </button>
+      <button onclick="fillDemo('student')" class="group px-3 py-2 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-xs text-emerald-300 hover:bg-emerald-500/20 transition">
+        <span class="font-medium">👨‍🎓 学生演示</span><br><span class="text-[10px] text-slate-500">student / 123456</span>
+      </button>
+    </div>
+    <input id="login-user" placeholder="用户名" class="w-full mb-3 px-3 py-2.5 rounded-lg bg-slate-800/80 border border-slate-600 text-sm focus:outline-none focus:border-indigo-400 transition" />
+    <input id="login-pass" type="password" placeholder="密码" class="w-full mb-3 px-3 py-2.5 rounded-lg bg-slate-800/80 border border-slate-600 text-sm focus:outline-none focus:border-indigo-400 transition" />
+    <select id="login-role" class="w-full mb-4 px-3 py-2.5 rounded-lg bg-slate-800/80 border border-slate-600 text-sm focus:outline-none focus:border-indigo-400 transition">
+      <option value="teacher">👩‍🏫 我是教师（查看学情驾驶舱）</option>
+      <option value="student">👨‍🎓 我是学生（学习 + 练一练）</option>
     </select>
     <div class="flex gap-2">
-      <button onclick="doLogin('login')" class="flex-1 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium">登 录</button>
-      <button onclick="doLogin('register')" class="flex-1 py-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200 text-sm">注册新账号</button>
+      <button onclick="doLogin('login')" class="flex-1 py-2.5 rounded-lg bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white text-sm font-medium transition shadow-lg shadow-indigo-600/25">登 录</button>
+      <button onclick="doLogin('register')" class="flex-1 py-2.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200 text-sm transition">注册新账号</button>
     </div>
+    <p class="text-[10px] text-slate-500 mt-3 text-center">按 Enter 快速登录 · 按 Esc 关闭弹窗</p>
   </div>
 </div>
 </body>
