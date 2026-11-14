@@ -74,9 +74,17 @@ class MultimodalService:
             async with httpx.AsyncClient(timeout=httpx.Timeout(60.0)) as client:
                 # 依次尝试候选模型，第一个成功的就直接返回
                 for model in vendor["models"]:
-                    payload = {
-                        "model": model,
-                        "messages": [
+                    # OCR 类模型不支持 system 角色，把提示词并入用户消息
+                    if "ocr" in model.lower():
+                        messages = [{
+                            "role": "user",
+                            "content": [
+                                {"type": "text", "text": f"{system_prompt}\n\n{question}"},
+                                {"type": "image_url", "image_url": {"url": image_url_value}},
+                            ],
+                        }]
+                    else:
+                        messages = [
                             {"role": "system", "content": system_prompt},
                             {
                                 "role": "user",
@@ -85,7 +93,10 @@ class MultimodalService:
                                     {"type": "image_url", "image_url": {"url": image_url_value}},
                                 ],
                             },
-                        ],
+                        ]
+                    payload = {
+                        "model": model,
+                        "messages": messages,
                         "temperature": 0.5,
                     }
                     resp = await client.post(url, headers=headers, json=payload)
