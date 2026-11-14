@@ -2,12 +2,27 @@
 
 > 🧠 懂代码、🗺️ 知图谱、⚡ 能动手的 AI 编程导师 | 大赛参赛作品
 >
-> [![Python](https://img.shields.io/badge/Python-3.11+-3776AB?logo=python&logoColor=white)](https://www.python.org/)
-> [![FastAPI](https://img.shields.io/badge/FastAPI-0.115-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
-> [![Docker](https://img.shields.io/badge/Docker-支持-2496ED?logo=docker&logoColor=white)](https://www.docker.com/)
-> [![License](https://img.shields.io/badge/License-MIT-emerald.svg)](LICENSE)
-> [![Gitee](https://img.shields.io/badge/Gitee-仓库-ee5253?logo=gitee)](https://gitee.com/shijh1216/CodeMentor)
-> [![GitHub](https://img.shields.io/badge/GitHub-仓库-181717?logo=github)](https://github.com/sjh123465/bisai)
+> <p align="center"><img src="https://img.shields.io/badge/Python-3.11+-3776AB?logo=python&logoColor=white">
+> <img src="https://img.shields.io/badge/FastAPI-0.115-009688?logo=fastapi&logoColor=white">
+> <img src="https://img.shields.io/badge/Tests-39%2F39%20PASS-10b981?logo=pytest">
+> <img src="https://img.shields.io/badge/Docker-支持-2496ED?logo=docker&logoColor=white">
+> <img src="https://img.shields.io/badge/License-MIT-emerald.svg">
+> <a href="https://gitee.com/shijh1216/CodeMentor"><img src="https://img.shields.io/badge/Gitee-ee5253?logo=gitee&logoColor=white&label=Gitee"></a>
+> <a href="https://github.com/sjh123465/bisai"><img src="https://img.shields.io/badge/GitHub-181717?logo=github&logoColor=white"></a>
+> </p>
+
+<details><summary><b>👀 点击查看截图预览</b></summary>
+
+| 💬 对话 Tab（SSE 流式 + 工具徽章） | 🗺️ 图谱 Tab（62 节点力导向） |
+|---|---|
+| 截图占位 | 截图占位 |
+
+| 📝 练一练（AI 出题 + 双轨批改） | 📊 学情驾驶舱（BKT 雷达 + 热力图） |
+|---|---|
+| 截图占位 | 截图占位 |
+
+> 📸 截图：前端单文件 SPA，所有依赖 CDN 引入，零构建。
+</details>
 
 ---
 
@@ -73,7 +88,130 @@
 | **知识图谱** | NetworkX（内存图计算）+ ChromaDB（向量） |
 | **沙箱** | Python subprocess + 危险模块黑名单 + 超时强制终止（Docker 模式可选） |
 | **鉴权** | PBKDF2 密码哈希 + HMAC 签名 Token |
-| **安全** | 滑动窗口限流（60 req/min）· 运行时指标暴露 · 12 单元/39 测试 |
+| **安全** | 滑动窗口限流（60 req/min）· 运行时指标暴露 · **39 单元测试全部通过** |
+
+---
+
+## 🧭 Agent 工具详解 — Function Calling 调度链
+
+Agent 不只是"调用一个 API 然后套壳"。它会**自主决策**调度哪些工具、什么顺序传参、什么时候停下来给人看。下面是 4 类核心工具的输入/输出签名：
+
+### 工具 1：`search_knowledge` — GraphRAG 混合检索
+
+```python
+# 输入
+{ "query": "红黑树删除操作", "top_k": 5 }
+
+# 输出（Agent 拿到后拼进下一轮 prompt）
+{
+  "graph_hits": [
+    {"id": "rb_delete", "name": "红黑树删除", "category": "operation",
+     "prerequisites": ["rb_insert", "rotation"], "page_rank": 0.82}
+  ],
+  "vector_hits": [
+    {"chunk": "红黑树删除后的平衡恢复分 4 种情况...", "score": 0.78}
+  ]
+}
+# 🔗 图谱返回"结构关系"，向量库返回"教材原文"
+#    Agent 综合后回答：先讲删除步骤 → 再讲 4 种旋转场景 → 再给代码
+```
+
+### 工具 2：`analyze_code` — AST 静态分析
+
+```python
+# 输入
+{ "code": "def quicksort(arr): while True: arr = arr + [1]" }
+
+# 输出
+{
+  "has_infinite_loop": True,      # 检测到 while True 无退出
+  "loop_depth": 1,                # 嵌套循环深度
+  "has_recursion": False,
+  "cyclomatic_complexity": 2,     # McCabe 复杂度
+  "issues": ["⚠️ while True 无 break", "建议：替换为 for 循环或加终止条件"],
+  "suggestions": "把 while True 改成 for i in range(len(arr))"
+}
+# 🔗 纯 AST 提取，不调用 LLM，结果客观稳定
+```
+
+### 工具 3：`sandbox_run` — 安全执行 + 测试
+
+```python
+# 输入
+{ "code": "...", "test_cases": [{"input": "[3,1,2]", "expects": "[1,2,3]"}], "timeout": 5 }
+
+# 输出
+{
+  "passed": 3, "total": 3,
+  "runtime_ms": 12,
+  "blocked_modules": [],
+  "test_results": [
+    {"input": "[3,1,2]", "actual": "[1,2,3]", "pass": True}
+  ]
+}
+# 🔗 默认 subprocess，黑名单拦截 os.system/subprocess/eval/exec/__import__
+#    Docker 模式下替换为容器隔离（compose 已预留）
+```
+
+### 工具 4：`recommend_path` — BKT + 图谱联合推荐
+
+```python
+# 输入
+{ "student_id": "demo_student", "target": "动态规划" }
+
+# 输出
+{
+  "prereqs": ["递归基础", "分治思想", "快速排序"],  # 图谱前置关系
+  "weak_prereqs": ["递归基础"],                     # BKT 掌握度 < 0.6
+  "current_mastery": { "quick_sort": 0.35, "bfs": 0.78 },
+  "suggested_path": [
+    {"step": 1, "concept": "递归基础", "expected_mastery": 0.35, "action": "先补这个"},
+    {"step": 2, "concept": "分治思想", "expected_mastery": 0.60, "action": "练 2 道快排变体"},
+    {"step": 3, "concept": "动态规划入门", "expected_mastery": 0.0, "action": "开始 DP"}
+  ]
+}
+# 🔗 图谱决定"先学什么"，BKT 决定"谁需要补"
+```
+
+### Agent 调度流程（实际运行时）
+
+```
+用户: "我写的快排为啥超时了？"
+  │
+  ▼
+🧠 Agent 判断意图 → "代码调试 + 复杂度分析"
+  │
+  ├─ Step 1 调用 search_knowledge("快排超时原因")
+  │         → 拿到 O(n²) 最坏情况、退化成链表的例子
+  │
+  ├─ Step 2 调用 analyze_code(用户代码)
+  │         → has_infinite_loop=False, loop_depth=0
+  │         → 发现：pivot 选首尾，已有序列下退化成 O(n²)
+  │
+  ├─ Step 3 调用 sandbox_run(用户代码 + 测试用例)
+  │         → passed 3/3 但 runtime 5200ms（n=10000）
+  │
+  └─ Step 4 综合回答（苏格拉底式）：
+           "你选的 pivot 是 arr[0] 对吧？
+            当数组已经有序时，每次只排除一个元素 → 递推式 T(n)=T(n-1)+n → O(n²)
+            试试 random pivot 或三数取中 pivot？"
+```
+
+---
+
+## 🎮 5 分钟极速体验
+
+```bash
+# Clone + 后端 + 启动 —— 就这三步
+git clone https://github.com/sjh123465/bisai.git && cd bisai/backend
+python -m venv .venv && .venv\Scripts\activate
+pip install -r requirements.txt && copy .env.example .env && python -m uvicorn app.main:app --port 8080
+
+# 另开终端跑 pytest 看 39/39
+cd bisai/backend && .venv\Scripts\activate && pytest tests/ -v
+```
+
+浏览器打开 `http://localhost:8080/static/index.html` → 点「👩‍🏫 教师演示」一键填充 → 登录。
 
 ---
 
@@ -476,6 +614,93 @@ cd docker && docker-compose up -d
 | Markdown XSS | marked.js `sanitize` 默认开启 | 审查 `graph-chip` 注入点 |
 
 > ⚠️ 本项目为**竞赛演示**用途，未经过生产环境安全审计。禁止直接用于生产部署。
+
+---
+
+## 🎨 前端打磨亮点
+
+前端为单文件 SPA（`frontend/index.html`，~1700 行），所有依赖通过 CDN 引入（TailwindCSS + Marked.js + Highlight.js + ECharts），**零构建、零 node_modules**。
+
+### 已实现的 21 项交互打磨
+
+| 轮次 | 打磨项 |
+|------|--------|
+| 1 | 📋 动态仪表盘（4 张渐变统计卡 + 30s 自动刷新）· 🔖 胶囊快捷问题（3→5）· 🔐 登录弹窗一键填充 · ✨ Tab 淡入动画 · 🗺️ 图谱自适应高度 |
+| 2 | 📝 代码块语言标签（18 种映射）+ hover 一键复制 · 🔍 图谱搜索高亮匹配字符 + 🎯 定位节点 + 回车直达 |
+| 3 | 🎨 滚动条品牌色 · 🌈 Tab 选中态底部紫色指示线 · 🏷️ 图表标题左侧色条 · 🔄 图谱 spinner · 📖 报告展开/收起 · ✅ 批改主次按钮区分 · 🔧 TOOL 编号隐藏 |
+| 4 | 👋 欢迎语卡片折叠 · 💬 消息气泡 hover 显示角色+时间+复制 · 🏅 错题榜奖牌🥇🥈🥉 + 红色徽章 + 彩色进度条 |
+| 5 | 🔐 登录后自动欢迎 + 角色推荐 · 🗺️ 图谱节点 hover tooltip + 紫色辉光 · 📝 练一练快速启动按钮 · 👥 学生列表展开箭头 + 进度条颜色分段 |
+
+### 关键交互细节
+
+- **代码块**：hover 显示"复制"按钮 → 点击变绿"✓ 已复制" → 1.5s 后恢复
+- **消息气泡**：hover 显示 `👤 你 · 18:44 · 📋 复制` / `🤖 CodeMentor · 18:44 · 📋 复制`
+- **图谱搜索定位**：输入"红黑树" → 紫色高亮匹配字符 → 点 🎯 切图谱 Tab → viewBox 自动居中 → 3s 黄色脉冲辉光
+- **登录角色分流**：学生登录 → 聊天推荐 3 条学生操作；教师登录 → 自动切学情 Tab + 学情推荐
+- **报告展开**：默认 max-h-96 折叠 → 点"展开 ▼" → max-h-none 完整展开 → 点"收起 ▲"
+- **键盘快捷键**：Enter 快速登录、Esc 关闭弹窗
+
+---
+
+## ❓ FAQ
+
+<details><summary><b>Q: 必须用 DeepSeek 吗？可以换其他模型吗？</b></summary>
+
+A: 后端用的是 OpenAI 兼容接口协议，只要你的模型提供商有 Chat Completions Endpoint 就能直接替换。改 `.env` 里的三项：
+```
+LLM_API_KEY=你的key
+LLM_BASE_URL=https://api.qwen.aliyun.com/v1   # 换成千问
+LLM_MODEL=qwen-plus
+```
+Function Calling 也是标准 OpenAI 格式，只要模型支持 tool_calls 字段就没问题。本地部署 Llama 3 + vLLM 也可以。
+</details>
+
+<details><summary><b>Q: 为什么 Embedding 会 404？</b></summary>
+
+A: DeepSeek Chat（`deepseek-chat`）**没有 Embedding Endpoint**。`/embeddings` 请求会返回 404。这不是你的配置问题。解决方案：
+
+1. 换 `deepseek-api` 系列模型（有 Embedding）
+2. 或设 `EMBEDDING_LOCAL=true` — 自动降级为本地 bigram-hash 向量（已内置）
+3. 或换一个有 Embedding 的提供商（如 OpenAI / Zhipu / Qwen）
+</details>
+
+<details><summary><b>Q: 沙箱安全吗？会不会跑恶意代码？</b></summary>
+
+A: 默认 subprocess 模式**有限安全**。黑名单拦截了 `os.system`, `subprocess`, `eval`, `exec`, `__import__`, `pickle`, `socket`, `ctypes` 等 20+ 模块。但 Python 可以用 `importlib` 绕黑名单。
+
+**竞赛演示够用**，**生产必须上 Docker**（compose 已预留 sandbox 服务）。沙箱模式自动检测：检测到 `/var/run/docker.sock` 就启用容器隔离。
+</details>
+
+<details><summary><b>Q: 种子数据（62 节点 / 69 边）可以扩展吗？</b></summary>
+
+A: 完全可以。后端 `app/core/seed_knowledge.py` 用 Python 字典定义节点，追加即可。种子脚本会自动：
+1. 调用 LLM 生成节点描述（可选，需 API Key）
+2. 用 NetworkX 计算 pagerank
+3. 生成 ChromaDB 向量（或降级为本地哈希）
+4. 写入 `data/knowledge_graph.json`
+
+删除 `data/knowledge_graph.json` 后重启后端会自动重新种子。
+</details>
+
+<details><summary><b>Q: 前端为什么不拆成 Vue/React + Vite？</b></summary>
+
+A: 两个考虑：
+1. **竞赛便携性**：单文件 HTML 可以直接用浏览器打开或挂在任何静态服务器上（甚至 `python -m http.server`），不用 `npm install`、不用构建、不用担心 node_modules 版本
+2. **复杂度可控**：前端只做数据展示和用户交互，业务逻辑全在后端。3 人小团队 5 天冲刺期，单文件维护成本最低
+
+如果后续要做产品化，推荐拆成 Vue 3 + Vite + Pinia。
+</details>
+
+<details><summary><b>Q: BKT 参数（0.3 / +0.15 / -0.10）是怎么选的？</b></summary>
+
+A: 来自论文常用值。贝叶斯知识追踪的四个参数：
+- 初始掌握度 p(L0) = 0.3（新手大概率不会）
+- 学会概率 p(T) = 0.15（答题后提升）
+- 猜测概率 p(G) = 0.2（不会但猜对）
+- 失误概率 p(S) = 0.1（会但答错）
+
+每次答题后：正确 → 贝叶斯更新提升 ~0.15，错误 → 下降 ~0.10，夹紧到 [0.05, 0.98]。可以在 `backend/app/services/bkt_service.py` 里调。
+</details>
 
 ---
 
