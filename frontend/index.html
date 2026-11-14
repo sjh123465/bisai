@@ -1,0 +1,667 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CodeMentor — Agent + GraphRAG 助学平台</title>
+
+<!-- Tailwind CDN -->
+<script src="https://cdn.tailwindcss.com"></script>
+
+<!-- Markdown 渲染 + 代码高亮 -->
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/github-dark.min.css">
+<script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"></script>
+<script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/languages/python.min.js"></script>
+<script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/languages/java.min.js"></script>
+
+<!-- ECharts 图表 -->
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+
+<style>
+  * { scrollbar-width: thin; scrollbar-color: #4b5563 transparent; }
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-thumb { background: #4b5563; border-radius: 3px; }
+
+  body { background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); min-height: 100vh; }
+
+  .prose-cm h1 { font-size: 1.25rem; font-weight: 700; color: #f8fafc; margin: 0.75rem 0 0.5rem; }
+  .prose-cm h2 { font-size: 1.125rem; font-weight: 600; color: #e2e8f0; margin: 0.6rem 0 0.4rem; border-left: 3px solid #6366f1; padding-left: 0.5rem; }
+  .prose-cm h3 { font-size: 1rem; font-weight: 600; color: #cbd5e1; margin: 0.5rem 0 0.3rem; }
+  .prose-cm p { margin: 0.3rem 0; line-height: 1.75; }
+  .prose-cm ul { list-style: disc; padding-left: 1.25rem; margin: 0.3rem 0; }
+  .prose-cm ol { list-style: decimal; padding-left: 1.25rem; margin: 0.3rem 0; }
+  .prose-cm li { margin: 0.15rem 0; }
+  .prose-cm code:not(pre code) { background: #334155; padding: 0.1rem 0.35rem; border-radius: 0.25rem; font-size: 0.85em; color: #a5f3fc; }
+  .prose-cm pre { background: #0d1117; border-radius: 0.5rem; padding: 0.75rem; margin: 0.5rem 0; overflow-x: auto; }
+  .prose-cm pre code { font-size: 0.85rem; }
+  .prose-cm blockquote { border-left: 3px solid #6366f1; padding-left: 0.75rem; margin: 0.5rem 0; color: #94a3b8; background: rgba(99, 102, 241, 0.1); padding: 0.5rem 0.75rem; border-radius: 0 0.375rem 0.375rem 0; }
+  .prose-cm strong { color: #fbbf24; }
+  .prose-cm hr { border-color: #475569; margin: 0.75rem 0; }
+
+  .graph-node { fill: #6366f1; stroke: #818cf8; stroke-width: 2; cursor: pointer; transition: all 0.2s; }
+  .graph-node:hover { fill: #818cf8; stroke-width: 3; }
+  .graph-node.label { font-size: 11px; fill: #e2e8f0; pointer-events: none; }
+  .graph-edge { stroke: #475569; stroke-width: 1; opacity: 0.6; }
+
+  .thinking-tag { color: #a78bfa; font-style: italic; font-size: 0.8rem; }
+
+  .typing-cursor::after { content: '▍'; animation: blink 1s infinite; color: #a5f3fc; }
+  @keyframes blink { 0%, 50% { opacity: 1; } 51%, 100% { opacity: 0; } }
+
+  .tool-badge { background: rgba(99,102,241,0.15); border: 1px solid #6366f1; color: #a5b4fc; border-radius: 999px; padding: 0.15rem 0.6rem; font-size: 0.7rem; display: inline-block; margin: 0.25rem 0; }
+
+  .pulse-dot { width: 8px; height: 8px; border-radius: 50%; background: #10b981; animation: pulse 2s infinite; display: inline-block; }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+</style>
+</head>
+<body class="text-slate-100">
+
+<!-- ============ 顶栏 ============ -->
+<header class="border-b border-slate-700/50 backdrop-blur bg-slate-900/50 sticky top-0 z-50">
+  <div class="max-w-[1600px] mx-auto px-4 py-3 flex items-center justify-between">
+    <div class="flex items-center gap-3">
+      <div class="w-9 h-9 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center font-bold text-white">C</div>
+      <div>
+        <h1 class="text-lg font-bold tracking-tight">CodeMentor</h1>
+        <p class="text-[11px] text-slate-400">Agent + GraphRAG 智能助学平台</p>
+      </div>
+    </div>
+    <div class="flex items-center gap-4 text-sm">
+      <span id="api-status" class="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs bg-slate-800/70 border border-slate-600/50">
+        <span class="pulse-dot"></span>
+        <span>连接中...</span>
+      </span>
+      <button onclick="switchTab('chat')" id="tab-chat" class="px-3 py-1 rounded-md bg-indigo-600 text-white text-sm">💬 对话</button>
+      <button onclick="switchTab('graph')" id="tab-graph" class="px-3 py-1 rounded-md bg-slate-700/70 text-slate-300 text-sm hover:bg-slate-600">🗺️ 图谱</button>
+      <button onclick="switchTab('teacher')" id="tab-teacher" class="px-3 py-1 rounded-md bg-slate-700/70 text-slate-300 text-sm hover:bg-slate-600">📊 学情</button>
+    </div>
+  </div>
+</header>
+
+<main class="max-w-[1600px] mx-auto p-4 grid grid-cols-1 lg:grid-cols-12 gap-4">
+
+  <!-- ============ 左侧：对话区 ============ -->
+  <section class="lg:col-span-8 space-y-4">
+
+    <!-- 对话主界面 -->
+    <div id="panel-chat" class="bg-slate-800/50 rounded-2xl border border-slate-700/50 overflow-hidden backdrop-blur">
+      <!-- 消息流 -->
+      <div id="chat-messages" class="h-[calc(100vh-360px)] min-h-[400px] overflow-y-auto p-4 space-y-4"></div>
+
+      <!-- 代码折叠 -->
+      <div id="code-panel" class="border-t border-slate-700/50 hidden">
+        <div class="flex items-center justify-between px-4 py-2 bg-slate-800/80">
+          <span class="text-xs text-slate-400 flex items-center gap-2">
+            <span class="w-2 h-2 rounded-full bg-amber-400"></span>
+            📝 附加代码（可选） — 提交代码问题时自动分析
+          </span>
+          <div class="flex gap-2">
+            <button onclick="runCode()" class="text-xs px-2 py-1 rounded bg-emerald-600 hover:bg-emerald-500">▶ 沙箱运行</button>
+            <button onclick="analyzeCode()" class="text-xs px-2 py-1 rounded bg-indigo-600 hover:bg-indigo-500">🔍 AST 分析</button>
+            <button onclick="clearCode()" class="text-xs px-2 py-1 rounded bg-slate-600 hover:bg-slate-500">清除</button>
+          </div>
+        </div>
+        <textarea id="code-input" placeholder="# 在这里粘贴你的 Python 代码\n# 例如：你写的快速排序..."
+          class="w-full h-40 p-3 bg-slate-900 text-emerald-200 font-mono text-sm resize-none outline-none border-t border-slate-700" spellcheck="false"></textarea>
+        <div id="code-output" class="bg-slate-950 text-xs p-3 max-h-28 overflow-auto font-mono border-t border-slate-700 text-slate-300 hidden"></div>
+      </div>
+
+      <!-- 输入区 -->
+      <div class="border-t border-slate-700/50 p-3 bg-slate-800/30">
+        <div class="flex gap-2 mb-2 text-xs">
+          <button onclick="toggleCodePanel()" class="px-2 py-1 rounded bg-slate-700/70 text-slate-300 hover:bg-slate-600">📎 附加代码</button>
+          <span class="text-slate-500 px-2 py-1">|</span>
+          <button onclick="sendQuick('什么是红黑树？')" class="px-2 py-1 rounded bg-slate-700/50 text-slate-400 hover:text-slate-200">🔖 什么是红黑树？</button>
+          <button onclick="sendQuick('快速排序为什么会超时？')" class="px-2 py-1 rounded bg-slate-700/50 text-slate-400 hover:text-slate-200">🔖 快排超时排查</button>
+          <button onclick="sendQuick('图论我应该先学什么？')" class="px-2 py-1 rounded bg-slate-700/50 text-slate-400 hover:text-slate-200">🔖 学习路径推荐</button>
+        </div>
+        <div class="flex gap-2">
+          <textarea id="user-input" rows="2" placeholder="问我任何计算机知识 — 理论、代码、算法... 我会调用工具帮你"
+            class="flex-1 p-3 bg-slate-900 rounded-xl border border-slate-600/50 text-slate-100 placeholder-slate-500 resize-none outline-none focus:border-indigo-500 text-sm"
+            onkeydown="if(event.key==='Enter' && !event.shiftKey){event.preventDefault();sendMessage();}"></textarea>
+          <button onclick="sendMessage()" id="send-btn" class="px-6 py-3 rounded-xl bg-gradient-to-br from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 font-medium transition disabled:opacity-50">
+            发送 ➤
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 图谱 Tab -->
+    <div id="panel-graph" class="bg-slate-800/50 rounded-2xl border border-slate-700/50 overflow-hidden backdrop-blur hidden">
+      <div class="px-4 py-3 border-b border-slate-700/50 flex items-center justify-between">
+        <div>
+          <h2 class="font-semibold">🗺️ 计算机学科知识图谱</h2>
+          <p class="text-xs text-slate-400" id="graph-stats">加载中...</p>
+        </div>
+        <div class="flex gap-2 text-xs">
+          <button onclick="loadGraph()" class="px-3 py-1.5 rounded bg-indigo-600 hover:bg-indigo-500">🔄 刷新</button>
+        </div>
+      </div>
+      <svg id="graph-svg" width="100%" height="600" class="bg-slate-900/50"></svg>
+    </div>
+
+    <!-- 学情 Tab -->
+    <div id="panel-teacher" class="bg-slate-800/50 rounded-2xl border border-slate-700/50 overflow-hidden backdrop-blur hidden">
+      <div class="px-4 py-3 border-b border-slate-700/50 flex items-center justify-between">
+        <div>
+          <h2 class="font-semibold">📊 学情驾驶舱</h2>
+          <p class="text-xs text-slate-400">基于 BKT 贝叶斯知识追踪算法</p>
+        </div>
+        <button onclick="generateReport()" class="px-3 py-1.5 rounded bg-indigo-600 hover:bg-indigo-500 text-xs">🤖 LLM 生成报告</button>
+      </div>
+      <div class="p-4 grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div class="bg-slate-900/50 rounded-xl p-4">
+          <h3 class="text-sm font-medium mb-3">👤 学生掌握度雷达（示例）</h3>
+          <div id="radar-chart" style="height:280px"></div>
+        </div>
+        <div class="bg-slate-900/50 rounded-xl p-4 md:col-span-2">
+          <h3 class="text-sm font-medium mb-3">🔥 知识点薄弱热力图</h3>
+          <div id="heatmap-chart" style="height:280px"></div>
+        </div>
+      </div>
+      <div id="report-box" class="mx-4 mb-4 bg-slate-900/50 rounded-xl p-4 hidden">
+        <h3 class="text-sm font-medium mb-2 flex items-center gap-2"><span class="tool-badge">🤖</span> AI 学情分析报告</h3>
+        <div id="report-content" class="prose-cm text-sm text-slate-300 max-h-64 overflow-auto"></div>
+      </div>
+    </div>
+
+  </section>
+
+  <!-- ============ 右侧：快速信息栏 ============ -->
+  <aside class="lg:col-span-4 space-y-4">
+
+    <!-- API Key 提示 -->
+    <div id="api-tip" class="bg-gradient-to-br from-amber-900/40 to-orange-900/40 border border-amber-700/50 rounded-2xl p-4 hidden">
+      <div class="flex items-start gap-3">
+        <span class="text-xl">⚠️</span>
+        <div class="text-sm">
+          <p class="font-medium text-amber-200">LLM API Key 未配置</p>
+          <p class="text-amber-300/80 mt-1 text-xs">在 backend/.env 中填入 LLM_API_KEY，否则 Agent 无法调用大模型</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- 系统概览 -->
+    <div class="bg-slate-800/50 rounded-2xl border border-slate-700/50 p-4 backdrop-blur">
+      <h3 class="font-semibold mb-3 flex items-center gap-2">⚡ 系统能力</h3>
+      <div class="space-y-2 text-xs">
+        <div class="flex items-center gap-2 p-2 rounded-lg bg-slate-900/50">
+          <span class="w-6 h-6 rounded bg-indigo-600/20 flex items-center justify-center text-indigo-400">🧠</span>
+          <div class="flex-1">
+            <div class="font-medium text-slate-200">Agent Function Calling</div>
+            <div class="text-slate-500">自动识别意图，调度工具</div>
+          </div>
+        </div>
+        <div class="flex items-center gap-2 p-2 rounded-lg bg-slate-900/50">
+          <span class="w-6 h-6 rounded bg-purple-600/20 flex items-center justify-center text-purple-400">🔗</span>
+          <div class="flex-1">
+            <div class="font-medium text-slate-200">GraphRAG 双引擎</div>
+            <div class="text-slate-500">Neo4j + Milvus → NetworkX + ChromaDB</div>
+          </div>
+        </div>
+        <div class="flex items-center gap-2 p-2 rounded-lg bg-slate-900/50">
+          <span class="w-6 h-6 rounded bg-emerald-600/20 flex items-center justify-center text-emerald-400">⚙️</span>
+          <div class="flex-1">
+            <div class="font-medium text-slate-200">AST 双轨批改</div>
+            <div class="text-slate-500">静态特征 + LLM 解释</div>
+          </div>
+        </div>
+        <div class="flex items-center gap-2 p-2 rounded-lg bg-slate-900/50">
+          <span class="w-6 h-6 rounded bg-amber-600/20 flex items-center justify-center text-amber-400">🎯</span>
+          <div class="flex-1">
+            <div class="font-medium text-slate-200">BKT 知识追踪</div>
+            <div class="text-slate-500">贝叶斯算法计算掌握度</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 图谱图例 -->
+    <div class="bg-slate-800/50 rounded-2xl border border-slate-700/50 p-4 backdrop-blur">
+      <h3 class="font-semibold mb-3">🏷️ 知识图谱节点类型</h3>
+      <div class="grid grid-cols-2 gap-2 text-xs">
+        <div class="flex items-center gap-1.5"><span class="w-3 h-3 rounded bg-indigo-500"></span> 章节 chapter</div>
+        <div class="flex items-center gap-1.5"><span class="w-3 h-3 rounded bg-purple-500"></span> 数据结构</div>
+        <div class="flex items-center gap-1.5"><span class="w-3 h-3 rounded bg-emerald-500"></span> 算法 algorithm</div>
+        <div class="flex items-center gap-1.5"><span class="w-3 h-3 rounded bg-amber-500"></span> 操作 operation</div>
+        <div class="flex items-center gap-1.5"><span class="w-3 h-3 rounded bg-rose-500"></span> 范式 paradigm</div>
+        <div class="flex items-center gap-1.5"><span class="w-3 h-3 rounded bg-sky-500"></span> 概念 concept</div>
+      </div>
+    </div>
+
+    <!-- 快速搜索 -->
+    <div class="bg-slate-800/50 rounded-2xl border border-slate-700/50 p-4 backdrop-blur">
+      <h3 class="font-semibold mb-3">🔍 图谱节点搜索</h3>
+      <input id="quick-search" placeholder="搜索：红黑树、快排、BFS..."
+        oninput="graphQuickSearch()"
+        class="w-full p-2 bg-slate-900 rounded-lg border border-slate-600/50 text-sm outline-none focus:border-indigo-500">
+      <div id="search-results" class="mt-2 space-y-1 max-h-48 overflow-auto hidden"></div>
+    </div>
+
+  </aside>
+</main>
+
+<!-- ============ JS ============ -->
+<script>
+  marked.setOptions({
+    highlight: function(code, lang) {
+      if (lang && hljs.getLanguage(lang)) {
+        try { return hljs.highlight(code, {language: lang}).value; } catch(_) {}
+      }
+      return hljs.highlightAuto(code).value;
+    },
+    breaks: true,
+    gfm: true,
+  });
+
+  const API = '/api';
+  const chatHistory = [];
+  let isStreaming = false;
+
+  // ---------- 启动检查 ----------
+  async function checkAPI() {
+    try {
+      const resp = await fetch(API + '/health');
+      const data = await resp.json();
+      if (data.status === 'ok') {
+        document.getElementById('api-status').innerHTML = '<span class="pulse-dot"></span> 后端在线';
+        document.getElementById('api-status').classList.remove('bg-slate-800/70');
+        document.getElementById('api-status').classList.add('bg-emerald-900/40', 'border-emerald-600/50');
+      }
+    } catch(e) {
+      document.getElementById('api-status').innerHTML = '<span class="pulse-dot" style="background:#ef4444"></span> 后端离线';
+      document.getElementById('api-status').classList.add('bg-red-900/40', 'border-red-600/50');
+      document.getElementById('api-tip').classList.remove('hidden');
+    }
+  }
+  checkAPI();
+
+  // ---------- Tab 切换 ----------
+  function switchTab(name) {
+    ['chat','graph','teacher'].forEach(t => {
+      const p = document.getElementById('panel-' + t);
+      const b = document.getElementById('tab-' + t);
+      if (t === name) {
+        p.classList.remove('hidden');
+        b.className = 'px-3 py-1 rounded-md bg-indigo-600 text-white text-sm';
+      } else {
+        p.classList.add('hidden');
+        b.className = 'px-3 py-1 rounded-md bg-slate-700/70 text-slate-300 text-sm hover:bg-slate-600';
+      }
+    });
+    if (name === 'graph') loadGraph();
+    if (name === 'teacher') loadTeacher();
+  }
+
+  // ---------- 消息渲染 ----------
+  function addMessage(role, content, isStreaming = false) {
+    const container = document.getElementById('chat-messages');
+    const wrap = document.createElement('div');
+    wrap.className = 'flex gap-3 ' + (role === 'user' ? 'flex-row-reverse' : '');
+    wrap.innerHTML = `
+      <div class="w-8 h-8 rounded-full flex-shrink-0 flex items-center justify-center font-bold text-white text-sm ${role === 'user' ? 'bg-gradient-to-br from-blue-500 to-cyan-500' : 'bg-gradient-to-br from-indigo-500 to-purple-600'}">
+        ${role === 'user' ? '你' : 'C'}
+      </div>
+      <div class="flex-1 max-w-[85%] ${role === 'user' ? 'text-right' : ''}">
+        <div class="prose-cm inline-block text-left p-3 rounded-xl ${role === 'user' ? 'bg-indigo-600/90' : 'bg-slate-700/70'} ${isStreaming ? 'typing-cursor' : ''}" style="white-space:pre-wrap">${content || ''}</div>
+      </div>
+    `;
+    container.appendChild(wrap);
+    container.scrollTop = container.scrollHeight;
+    return wrap;
+  }
+
+  function updateMessage(wrap, content, isStreaming = false) {
+    const bubble = wrap.querySelector('.prose-cm');
+    if (isStreaming) {
+      bubble.textContent = content;
+    } else {
+      bubble.classList.remove('typing-cursor');
+      bubble.innerHTML = marked.parse(content);
+    }
+  }
+
+  // ---------- 发送消息（SSE 流式） ----------
+  async function sendMessage() {
+    if (isStreaming) return;
+    const input = document.getElementById('user-input');
+    const message = input.value.trim();
+    if (!message) return;
+
+    const code = document.getElementById('code-input').value.trim();
+    input.value = '';
+    isStreaming = true;
+    document.getElementById('send-btn').disabled = true;
+
+    // 用户消息
+    addMessage('user', message);
+
+    // AI 消息占位
+    const aiWrap = addMessage('assistant', '', true);
+    let buffer = '';
+
+    try {
+      const resp = await fetch(API + '/chat/stream', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({message, code: code || null, history: chatHistory.slice(-6)})
+      });
+      if (!resp.ok) throw new Error('HTTP ' + resp.status);
+
+      const reader = resp.body.getReader();
+      const decoder = new TextDecoder();
+      let sseBuffer = '';
+
+      while (true) {
+        const {done, value} = await reader.read();
+        if (done) break;
+        sseBuffer += decoder.decode(value, {stream: true});
+
+        // 处理 SSE 事件
+        let idx;
+        while ((idx = sseBuffer.indexOf('\n\n')) !== -1) {
+          const raw = sseBuffer.substring(0, idx);
+          sseBuffer = sseBuffer.substring(idx + 2);
+          const lines = raw.split('\n');
+          let data = null;
+          for (const ln of lines) {
+            if (ln.startsWith('data: ')) {
+              try { data = JSON.parse(ln.substring(6)); } catch(_) {}
+            }
+          }
+          if (!data) continue;
+
+          if (data.type === 'chunk') {
+            buffer += data.content;
+            updateMessage(aiWrap, buffer, true);
+          } else if (data.type === 'end') {
+            updateMessage(aiWrap, buffer, false);
+          }
+        }
+      }
+
+      // 保存历史
+      chatHistory.push({role: 'user', content: message});
+      chatHistory.push({role: 'assistant', content: buffer});
+    } catch(e) {
+      updateMessage(aiWrap, '❌ 请求失败：' + e.message + '\n\n请确认后端已启动（运行 `python -m uvicorn app.main:app`），并在 .env 中填入 LLM_API_KEY', false);
+    } finally {
+      isStreaming = false;
+      document.getElementById('send-btn').disabled = false;
+    }
+  }
+
+  function sendQuick(msg) {
+    document.getElementById('user-input').value = msg;
+    sendMessage();
+  }
+
+  // ---------- 代码面板 ----------
+  function toggleCodePanel() {
+    const p = document.getElementById('code-panel');
+    p.classList.toggle('hidden');
+  }
+  function clearCode() {
+    document.getElementById('code-input').value = '';
+    document.getElementById('code-output').classList.add('hidden');
+  }
+
+  async function runCode() {
+    const code = document.getElementById('code-input').value;
+    if (!code.trim()) return alert('请先输入代码');
+    const out = document.getElementById('code-output');
+    out.classList.remove('hidden');
+    out.textContent = '⏳ 沙箱执行中...';
+    try {
+      const resp = await fetch(API + '/code/execute', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({code})
+      });
+      const data = await resp.json();
+      out.textContent = data.success
+        ? `✅ 执行成功 (${data.execution_time}s)\n\n${data.output || '(无输出)'}`
+        : `❌ 执行失败\n\n${data.output || ''}\n${data.error || ''}`;
+    } catch(e) { out.textContent = '❌ ' + e.message; }
+  }
+
+  async function analyzeCode() {
+    const code = document.getElementById('code-input').value;
+    if (!code.trim()) return alert('请先输入代码');
+    const out = document.getElementById('code-output');
+    out.classList.remove('hidden');
+    out.textContent = '⏳ AST 分析中...';
+    try {
+      const resp = await fetch(API + '/code/analyze', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({code})
+      });
+      const data = await resp.json();
+      out.textContent = data.text;
+    } catch(e) { out.textContent = '❌ ' + e.message; }
+  }
+
+  // ---------- 知识图谱可视化（力导向布局） ----------
+  let graphData = null;
+  async function loadGraph() {
+    const statsEl = document.getElementById('graph-stats');
+    statsEl.textContent = '加载中...';
+    try {
+      const resp = await fetch(API + '/knowledge/graph');
+      graphData = await resp.json();
+      statsEl.textContent = `共 ${graphData.nodes.length} 节点 · ${graphData.edges.length} 边`;
+      renderGraph(graphData);
+    } catch(e) { statsEl.textContent = '加载失败: ' + e.message; }
+  }
+
+  const categoryColors = {
+    chapter: '#6366f1', structure: '#a855f7', algorithm: '#10b981',
+    operation: '#f59e0b', paradigm: '#f43f5e', concept: '#0ea5e9',
+  };
+
+  function renderGraph(data) {
+    const svg = document.getElementById('graph-svg');
+    const width = svg.clientWidth;
+    const height = 600;
+    svg.innerHTML = '';
+
+    // 为每个节点分配位置（圆形布局 + 轻微随机偏移）
+    const nodes = data.nodes.map(n => {
+      return {
+        id: n.id, name: n.name || n.id, category: n.category || 'concept',
+        x: width/2 + Math.cos(Math.random() * Math.PI * 2) * 200 + (Math.random()-0.5)*40,
+        y: height/2 + Math.sin(Math.random() * Math.PI * 2) * 200 + (Math.random()-0.5)*40,
+        vx: 0, vy: 0,
+      };
+    });
+    const edges = data.edges.map(e => ({source: e.source, target: e.target}));
+    const nodeMap = Object.fromEntries(nodes.map(n => [n.id, n]));
+
+    // 力导向模拟（简单版，迭代 80 次）
+    for (let iter = 0; iter < 80; iter++) {
+      // 排斥力
+      for (let i = 0; i < nodes.length; i++) {
+        for (let j = i+1; j < nodes.length; j++) {
+          const a = nodes[i], b = nodes[j];
+          const dx = a.x - b.x, dy = a.y - b.y;
+          const dist = Math.sqrt(dx*dx + dy*dy) || 1;
+          const force = 800 / (dist * dist);
+          a.vx += dx/dist * force; a.vy += dy/dist * force;
+          b.vx -= dx/dist * force; b.vy -= dy/dist * force;
+        }
+      }
+      // 吸引力（边）
+      for (const e of edges) {
+        const a = nodeMap[e.source], b = nodeMap[e.target];
+        if (!a || !b) continue;
+        const dx = b.x - a.x, dy = b.y - a.y;
+        const dist = Math.sqrt(dx*dx + dy*dy) || 1;
+        const force = (dist - 120) * 0.01;
+        a.vx += dx/dist * force; a.vy += dy/dist * force;
+        b.vx -= dx/dist * force; b.vy -= dy/dist * force;
+      }
+      // 居中 + 边界 + 应用
+      const cx = width/2, cy = height/2;
+      for (const n of nodes) {
+        n.vx += (cx - n.x) * 0.005;
+        n.vy += (cy - n.y) * 0.005;
+        n.vx *= 0.85; n.vy *= 0.85;
+        n.x += n.vx; n.y += n.vy;
+        n.x = Math.max(40, Math.min(width - 40, n.x));
+        n.y = Math.max(40, Math.min(height - 40, n.y));
+      }
+    }
+
+    // 渲染边
+    for (const e of edges) {
+      const a = nodeMap[e.source], b = nodeMap[e.target];
+      if (!a || !b) continue;
+      const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+      line.setAttribute('x1', a.x); line.setAttribute('y1', a.y);
+      line.setAttribute('x2', b.x); line.setAttribute('y2', b.y);
+      line.setAttribute('class', 'graph-edge');
+      svg.appendChild(line);
+    }
+    // 渲染节点
+    for (const n of nodes) {
+      const color = categoryColors[n.category] || '#6366f1';
+      const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+      const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+      circle.setAttribute('cx', n.x); circle.setAttribute('cy', n.y);
+      circle.setAttribute('r', 10);
+      circle.setAttribute('fill', color);
+      circle.setAttribute('stroke', color);
+      circle.setAttribute('class', 'graph-node');
+      circle.onclick = () => sendQuick(n.name);
+      const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+      text.setAttribute('x', n.x); text.setAttribute('y', n.y + 22);
+      text.setAttribute('class', 'graph-node label');
+      text.setAttribute('text-anchor', 'middle');
+      text.textContent = n.name.length > 8 ? n.name.slice(0,8)+'…' : n.name;
+      g.appendChild(circle); g.appendChild(text);
+      svg.appendChild(g);
+    }
+  }
+
+  // ---------- 图谱快速搜索 ----------
+  async function graphQuickSearch() {
+    const q = document.getElementById('quick-search').value.trim();
+    const box = document.getElementById('search-results');
+    if (!q) { box.classList.add('hidden'); return; }
+    try {
+      const resp = await fetch(API + '/knowledge/search?query=' + encodeURIComponent(q) + '&top_k=8');
+      const nodes = await resp.json();
+      if (!nodes.length) { box.innerHTML = '<div class="text-xs text-slate-500 p-2">无结果</div>'; box.classList.remove('hidden'); return; }
+      box.innerHTML = nodes.map(n => `
+        <button onclick="sendQuick('${n.name}是什么？')" class="w-full text-left p-1.5 rounded hover:bg-slate-700 text-xs flex items-center gap-2">
+          <span class="w-2 h-2 rounded-full" style="background:${categoryColors[n.category]||'#6366f1'}"></span>
+          <span>${n.name}</span>
+          <span class="text-slate-500 text-[10px] ml-auto">${n.category}</span>
+        </button>
+      `).join('');
+      box.classList.remove('hidden');
+    } catch(e) {}
+  }
+
+  // ---------- 学情仪表盘 ----------
+  let radarChart, heatmapChart;
+  async function loadTeacher() {
+    // 雷达图（示例学生）
+    try {
+      const resp = await fetch(API + '/bkt/mastery/demo_student');
+      const mastery = await resp.json();
+      renderRadar(mastery);
+    } catch(e) {
+      // 初始化一些示例数据
+      const sample = {'红黑树': 0.85, '快速排序': 0.72, '图论': 0.40, '动态规划': 0.55, '链表': 0.92, '二叉树': 0.68, '最短路径': 0.38};
+      renderRadar(sample);
+    }
+
+    // 热力图
+    try {
+      const resp = await fetch(API + '/teacher/dashboard');
+      const dash = await resp.json();
+      renderHeatmap(dash.heatmap || {});
+    } catch(e) {
+      renderHeatmap({});
+    }
+  }
+
+  function renderRadar(mastery) {
+    const el = document.getElementById('radar-chart');
+    if (radarChart) radarChart.dispose();
+    radarChart = echarts.init(el, null, {renderer: 'canvas'});
+    const keys = Object.keys(mastery).slice(0, 7);
+    const values = keys.map(k => Math.round((mastery[k] || 0.3) * 100));
+    radarChart.setOption({
+      backgroundColor: 'transparent',
+      tooltip: {trigger: 'item'},
+      radar: {
+        indicator: keys.map(k => ({name: k, max: 100})),
+        axisName: {color: '#cbd5e1', fontSize: 11},
+        splitLine: {lineStyle: {color: '#334155'}},
+        splitArea: {areaStyle: {color: ['#1e293b', '#1e293b']}},
+        axisLine: {lineStyle: {color: '#475569'}},
+      },
+      series: [{
+        type: 'radar',
+        data: [{value: values, name: '掌握度', areaStyle: {color: 'rgba(99,102,241,0.3)'}, lineStyle: {color: '#6366f1'}, itemStyle: {color: '#a5b4fc'}}],
+      }],
+    });
+  }
+
+  function renderHeatmap(heatmap) {
+    const el = document.getElementById('heatmap-chart');
+    if (heatmapChart) heatmapChart.dispose();
+    heatmapChart = echarts.init(el, null, {renderer: 'canvas'});
+    const items = Object.entries(heatmap).sort((a,b) => a[1].avg - b[1].avg).slice(0, 15);
+    if (items.length === 0) {
+      heatmapChart.setOption({
+        backgroundColor: 'transparent',
+        title: {text: '暂无答题数据 — 学生答题后自动更新', left: 'center', top: 'middle', textStyle: {color: '#64748b', fontSize: 13}},
+      });
+      return;
+    }
+    heatmapChart.setOption({
+      backgroundColor: 'transparent',
+      tooltip: {trigger: 'axis', axisPointer: {type: 'shadow'}},
+      grid: {left: 140, right: 20, top: 10, bottom: 30},
+      xAxis: {type: 'value', max: 100, axisLabel: {color: '#94a3b8', formatter: '{value}%'}, splitLine: {lineStyle: {color: '#334155'}}},
+      yAxis: {type: 'category', data: items.map(i => i[0]), axisLabel: {color: '#e2e8f0', fontSize: 11}, axisLine: {lineStyle: {color: '#475569'}}},
+      series: [{
+        type: 'bar',
+        data: items.map(i => ({value: Math.round(i[1].avg*100), itemStyle: {color: i[1].avg < 0.6 ? '#ef4444' : i[1].avg < 0.8 ? '#f59e0b' : '#10b981'}})),
+        barWidth: 14,
+      }],
+    });
+  }
+
+  async function generateReport() {
+    const box = document.getElementById('report-box');
+    const content = document.getElementById('report-content');
+    box.classList.remove('hidden');
+    content.textContent = '⏳ AI 正在生成学情报告...';
+    try {
+      const resp = await fetch(API + '/teacher/report');
+      const data = await resp.json();
+      content.innerHTML = marked.parse(data.report);
+    } catch(e) { content.textContent = '❌ ' + e.message; }
+  }
+
+  // ---------- 窗口 resize ----------
+  window.addEventListener('resize', () => {
+    if (radarChart) radarChart.resize();
+    if (heatmapChart) heatmapChart.resize();
+  });
+
+  // 初始化
+  setTimeout(() => {
+    // 默认欢迎消息
+    addMessage('assistant',
+      '👋 你好！我是 **CodeMentor**，你的 AI 编程导师。\n\n我可以帮你：\n\n- 📖 **理论问答** — 问我任何计算机知识点\n- 🐛 **代码调试** — 贴你的代码，我会跑沙箱 + AST 分析\n- 📚 **学习路径** — 基于你的薄弱点推荐内容\n\n试试告诉我：**"红黑树和 AVL 树有什么区别？"**',
+      false
+    );
+  }, 300);
+</script>
+</body>
+</html>
