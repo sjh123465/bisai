@@ -91,6 +91,53 @@ class ExamService:
             logger.error(f"出题失败: {e}")
             return {"error": f"出题失败: {e}"}
 
+    async def generate_paper(self, concepts: list[str] = None, count: int = 5,
+                              qtypes: list[str] = None) -> dict:
+        """
+        生成一份试卷（多道题）
+        concepts: 知识点列表；为空则自动从图谱选取
+        count: 题目数量
+        qtypes: 题型分布列表，如 ["choice","choice","judge","code","code"]；为空则混合
+        """
+        import asyncio
+
+        # 1. 确定知识点列表
+        if not concepts:
+            # 从图谱自动选取（优先 algorithm/structure 类）
+            all_nodes = self.graph.all_nodes()
+            candidates = [n for n in all_nodes if n.get("category") in ("algorithm", "structure")]
+            # 按类别均匀选取
+            import random
+            random.shuffle(candidates)
+            concepts = [n["id"] for n in candidates[:count]]
+
+        # 2. 确定题型分布
+        if not qtypes or len(qtypes) < count:
+            default_types = ["choice", "choice", "judge", "code", "code", "choice", "judge", "code"]
+            qtypes = (default_types * ((count // len(default_types)) + 1))[:count]
+
+        # 3. 并行出题（并发限制 3，避免 LLM 限流）
+        async def _gen_one(concept, qtype):
+            return await self.generate_question(concept, qtype)
+
+        sem = asyncio.Semaphore(3)
+        async def _bounded(concept, qtype):
+            async with sem:
+                return await _gen_one(concept, qtype)
+
+        tasks = [_bounded(c, t) for c, t in zip(concepts[:count], qtypes[:count])]
+        questions = await asyncio.gather(*tasks)
+
+        # 4. 过滤失败的题目
+        valid = [q for q in questions if q and "error" not in q]
+        logger.info(f"📄 试卷生成: 成功 {len(valid)}/{count} 题")
+        return {
+            "total": count,
+            "generated": len(valid),
+            "questions": valid,
+            "concepts": concepts[:count],
+        }
+
 
 _exam = None
 

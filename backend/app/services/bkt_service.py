@@ -67,6 +67,10 @@ class BKTService:
         """获取学生所有知识点掌握度"""
         return self._data.get(student_id, {})
 
+    def get_all_students(self) -> list[str]:
+        """获取所有学生 ID"""
+        return list(self._data.keys())
+
     def get_mastery_for(self, student_id: str, concept_id: str) -> float:
         return self._data.get(student_id, {}).get(concept_id, 0.3)
 

@@ -79,6 +79,56 @@ async def wrong_top(top_n: int = 10):
     return {"ranking": ranking}
 
 
+@router.get("/students")
+async def list_students():
+    """列出所有学生及其学情概览"""
+    bkt = get_bkt()
+    wb = get_wrongbook()
+    students = []
+    for sid in bkt.get_all_students():
+        mastery = bkt.get_mastery(sid)
+        avg = sum(mastery.values()) / len(mastery) if mastery else 0
+        weak_count = sum(1 for v in mastery.values() if v < 0.6)
+        wrong_counts = wb.get_wrong_count_by_student(sid)
+        total_wrong = sum(wrong_counts.values())
+        students.append({
+            "student_id": sid,
+            "avg_mastery": round(avg, 3),
+            "tracked_concepts": len(mastery),
+            "weak_count": weak_count,
+            "total_wrong": total_wrong,
+        })
+    # 按平均掌握度升序（薄弱的排前面）
+    students.sort(key=lambda x: x["avg_mastery"])
+    return {"students": students}
+
+
+@router.get("/student/{student_id}")
+async def student_detail(student_id: str):
+    """单个学生学情详情（掌握度 + 错题数 + 薄弱点）"""
+    bkt = get_bkt()
+    wb = get_wrongbook()
+    g = get_graph()
+    mastery = bkt.get_mastery(student_id)
+    weak = bkt.get_weak_points(student_id)
+    wrong_counts = wb.get_wrong_count_by_student(student_id)
+
+    # 把知识点 ID 转中文名
+    mastery_with_names = {}
+    for cid, score in mastery.items():
+        node = g.get_node(cid)
+        name = (node or {}).get("name", cid)
+        mastery_with_names[name] = round(score, 3)
+
+    return {
+        "student_id": student_id,
+        "mastery": mastery_with_names,
+        "weak_points": weak,
+        "wrong_counts": wrong_counts,
+        "total_wrong": sum(wrong_counts.values()),
+    }
+
+
 @router.get("/report")
 async def generate_report():
     """LLM 自动生成学情报告（含 BKT 掌握度 + 高频错题）"""

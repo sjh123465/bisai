@@ -13,6 +13,12 @@ class GenerateRequest(BaseModel):
     qtype: str = "any"  # choice / judge / code / any
 
 
+class PaperRequest(BaseModel):
+    concepts: Optional[List[str]] = None
+    count: int = 5
+    qtypes: Optional[List[str]] = None
+
+
 class TestCase(BaseModel):
     input: str = ""
     expected: str
@@ -29,6 +35,13 @@ class GradeRequest(BaseModel):
 async def generate_question(req: GenerateRequest):
     exam = get_exam()
     return await exam.generate_question(req.concept, req.qtype)
+
+
+@router.post("/paper")
+async def generate_paper(req: PaperRequest):
+    """生成一份试卷（多道题，自动从图谱选知识点）"""
+    exam = get_exam()
+    return await exam.generate_paper(req.concepts, req.count, req.qtypes)
 
 
 @router.post("/grade")

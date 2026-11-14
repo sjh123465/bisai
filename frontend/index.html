@@ -145,11 +145,16 @@
             <option value="code">编程题</option>
           </select>
           <button onclick="generateQuestion()" class="px-4 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-sm">🎲 生成题目</button>
+          <button onclick="generatePaper()" class="px-4 py-1.5 rounded-lg bg-violet-600/80 hover:bg-violet-500 text-sm">📄 生成试卷</button>
           <button onclick="loadRetryQuestions()" class="px-4 py-1.5 rounded-lg bg-rose-600/80 hover:bg-rose-500 text-sm">📕 错题重做</button>
         </div>
       </div>
       <div class="p-4 max-h-[calc(100vh-380px)] overflow-y-auto space-y-4">
         <div id="exam-question" class="hidden bg-slate-900/50 rounded-xl p-4 border border-slate-700/50">
+          <div id="paper-progress" class="hidden mb-3 flex items-center justify-between text-xs text-slate-400">
+            <span id="paper-progress-text">第 1 / 5 题</span>
+            <button onclick="nextPaperQuestion()" id="paper-next-btn" class="hidden px-3 py-1 rounded bg-emerald-600 hover:bg-emerald-500 text-white">下一题 →</button>
+          </div>
           <div class="flex items-center gap-2 mb-2">
             <span id="exam-type-badge" class="text-xs px-2 py-0.5 rounded bg-indigo-600/30 text-indigo-300"></span>
             <span id="exam-concept-badge" class="text-xs px-2 py-0.5 rounded bg-slate-700 text-slate-400"></span>
@@ -213,6 +218,17 @@
           <h3 class="text-sm font-medium mb-3">📕 高频错题榜（按知识点聚合全班答错次数）</h3>
           <div id="wrong-ranking" class="space-y-2">
             <p class="text-xs text-slate-500">暂无错题数据 — 学生在「练一练」答错题目后自动统计</p>
+          </div>
+        </div>
+      </div>
+      <div class="px-4 mb-4">
+        <div class="bg-slate-900/50 rounded-xl p-4">
+          <h3 class="text-sm font-medium mb-3">👥 学生学情列表（按薄弱程度排序）</h3>
+          <div id="student-list" class="space-y-2 mb-3"></div>
+          <div id="student-detail" class="hidden border-t border-slate-700 pt-3">
+            <h4 class="text-sm font-medium mb-2 text-slate-300">📊 掌握度详情</h4>
+            <div id="student-radar" style="height:220px"></div>
+            <div id="student-weak" class="mt-2 text-xs text-slate-400"></div>
           </div>
         </div>
       </div>
@@ -671,6 +687,66 @@
       renderHeatmap({});
       renderWrongRanking([]);
     }
+
+    // 学生列表
+    try {
+      const sr = await fetch(API + '/teacher/students');
+      const sd = await sr.json();
+      renderStudentList(sd.students || []);
+    } catch(e) {
+      renderStudentList([]);
+    }
+  }
+
+  function renderStudentList(students) {
+    const el = document.getElementById('student-list');
+    if (students.length === 0) {
+      el.innerHTML = '<p class="text-xs text-slate-500">暂无学生数据 — 学生答题后自动出现</p>';
+      return;
+    }
+    el.innerHTML = students.map(s => {
+      const pct = Math.round(s.avg_mastery * 100);
+      const color = pct < 40 ? 'text-rose-400' : pct < 70 ? 'text-amber-400' : 'text-emerald-400';
+      return `
+        <div class="flex items-center gap-3 p-2 rounded-lg bg-slate-800/50 hover:bg-slate-700/50 cursor-pointer transition" onclick='loadStudentDetail("${s.student_id}")'>
+          <span class="text-sm text-slate-200 w-28 truncate">${s.student_id}</span>
+          <div class="flex-1 h-2 bg-slate-700 rounded-full overflow-hidden">
+            <div class="h-full bg-gradient-to-r from-rose-500 to-emerald-500" style="width:${pct}%"></div>
+          </div>
+          <span class="text-xs ${color} w-10 text-right">${pct}%</span>
+          <span class="text-xs text-slate-500 w-16 text-right">薄弱${s.weak_count} · 错题${s.total_wrong}</span>
+        </div>
+      `;
+    }).join('');
+  }
+
+  async function loadStudentDetail(studentId) {
+    try {
+      const r = await fetch(API + '/teacher/student/' + studentId);
+      const d = await r.json();
+      document.getElementById('student-detail').classList.remove('hidden');
+
+      // 雷达图
+      const mastery = d.mastery || {};
+      const names = Object.keys(mastery);
+      const values = names.map(n => Math.round(mastery[n] * 100));
+      const dom = document.getElementById('student-radar');
+      if (names.length >= 3 && window.echarts) {
+        const chart = echarts.init(dom, 'dark');
+        chart.setOption({
+          radar: { indicator: names.map(n => ({name: n, max: 100})), radius: '65%' },
+          series: [{ type: 'radar', data: [{ value: values, name: studentId, areaStyle: {opacity: 0.3} }] }]
+        });
+      } else {
+        dom.innerHTML = '<p class="text-xs text-slate-500">知识点少于3个，无法绘制雷达图</p>';
+      }
+
+      // 薄弱点
+      const weak = d.weak_points || [];
+      document.getElementById('student-weak').innerHTML = weak.length
+        ? '⚠️ 薄弱知识点: ' + weak.map(w => `${w.concept_id}(${Math.round(w.mastery*100)}%)`).join('、')
+        : '✅ 暂无明显薄弱知识点';
+    } catch(e) { console.error(e); }
   }
 
   function renderWrongRanking(ranking) {
@@ -814,6 +890,67 @@
     finally { btn.disabled = false; btn.textContent = '🎲 生成题目'; }
   }
 
+  let _paperQuestions = null;
+  let _paperIndex = 0;
+
+  async function generatePaper() {
+    const empty = document.getElementById('exam-empty');
+    const q = document.getElementById('exam-question');
+    const result = document.getElementById('exam-result');
+    const retry = document.getElementById('retry-list');
+    empty.classList.add('hidden');
+    q.classList.add('hidden');
+    result.classList.add('hidden');
+    retry.classList.add('hidden');
+
+    // 选知识点和题数
+    const concept = document.getElementById('exam-concept').value;
+    const count = 5;
+    const body = { count };
+    if (concept) body.concepts = Array(count).fill(concept);
+
+    const btn = event.target;
+    btn.disabled = true; btn.textContent = '📄 生成中...';
+    try {
+      const data = await fetch('/api/exam/paper', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(body)
+      }).then(r => r.json());
+      if (data.error || !data.questions) { alert(data.error || '生成失败'); return; }
+      _paperQuestions = data.questions;
+      _paperIndex = 0;
+      showPaperQuestion();
+    } catch (e) { alert('生成失败: ' + e); }
+    finally { btn.disabled = false; btn.textContent = '📄 生成试卷'; }
+  }
+
+  function showPaperQuestion() {
+    if (!_paperQuestions || _paperIndex >= _paperQuestions.length) {
+      document.getElementById('exam-result').classList.remove('hidden');
+      document.getElementById('exam-result').innerHTML = '<div class="text-center py-8"><div class="text-4xl mb-2">🎉</div><p class="text-slate-300">试卷完成！</p></div>';
+      document.getElementById('paper-progress').classList.add('hidden');
+      return;
+    }
+    currentQuestion = _paperQuestions[_paperIndex];
+    document.getElementById('paper-progress').classList.remove('hidden');
+    document.getElementById('paper-progress-text').textContent = `第 ${_paperIndex + 1} / ${_paperQuestions.length} 题`;
+    document.getElementById('paper-next-btn').classList.add('hidden');
+    document.getElementById('exam-result').classList.add('hidden');
+    renderQuestion(currentQuestion);
+  }
+
+  function nextPaperQuestion() {
+    _paperIndex++;
+    showPaperQuestion();
+  }
+
+  function markPaperAnswered() {
+    // 试卷模式下，答完一题显示"下一题"按钮
+    if (_paperQuestions && _paperIndex < _paperQuestions.length) {
+      document.getElementById('paper-next-btn').classList.remove('hidden');
+    }
+  }
+
   async function loadRetryQuestions() {
     const listEl = document.getElementById('retry-list');
     const empty = document.getElementById('exam-empty');
@@ -932,12 +1069,14 @@
                               : 'w-full text-left px-3 py-2 rounded-lg bg-rose-700/50 border border-rose-500 text-sm';
     recordAnswer(q.concept_id, q, selected, correct);
     showResult(q, correct ? '通过' : '不通过', q.explanation);
+    markPaperAnswered();
   }
 
   function checkJudge(btn, q, val) {
     const correct = (val === q.answer);
     recordAnswer(q.concept_id, q, val ? '正确' : '错误', correct);
     showResult(q, correct ? '通过' : '不通过', q.explanation);
+    markPaperAnswered();
   }
 
   async function gradeQuestion() {
@@ -959,6 +1098,7 @@
       const allPass = sb.total > 0 && sb.passed === sb.total;
       const correct = allPass || score >= 80;
       recordAnswer(currentQuestion.concept_id, currentQuestion, code, correct);
+      markPaperAnswered();
     } catch (e) { alert('批改失败: ' + e); }
     finally { btn.disabled = false; btn.textContent = '✅ 提交批改'; }
   }
