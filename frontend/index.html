@@ -1000,9 +1000,23 @@
     }
   }
 
+  // 6 类节点颜色 —— 鲜艳饱和色 + hover 高亮用
   const categoryColors = {
-    chapter: '#6366f1', structure: '#a855f7', algorithm: '#10b981',
-    operation: '#f59e0b', paradigm: '#f43f5e', concept: '#0ea5e9',
+    chapter:    '#818cf8', // 章节 —— 亮紫
+    structure:  '#c084fc', // 数据结构 —— 亮玫紫
+    algorithm:  '#34d399', // 算法 —— 亮翡翠
+    operation:  '#fbbf24', // 操作 —— 亮琥珀
+    paradigm:   '#fb7185', // 范式 —— 亮玫红
+    concept:    '#38bdf8', // 概念 —— 亮天蓝
+  };
+  // 同类型高亮用的辉光颜色（与 categoryColors 同色系但更亮）
+  const categoryGlow = {
+    chapter:    'rgba(129,140,248,0.9)',
+    structure:  'rgba(192,132,252,0.9)',
+    algorithm:  'rgba(52,211,153,0.9)',
+    operation:  'rgba(251,191,36,0.9)',
+    paradigm:   'rgba(251,113,133,0.9)',
+    concept:    'rgba(56,189,248,0.9)',
   };
 
   function renderGraph(data) {
@@ -1121,14 +1135,27 @@
       circle.setAttribute('class', 'graph-node');
       circle.setAttribute('data-id', n.id);
       circle.setAttribute('data-name', n.name);
+      circle.setAttribute('data-category', n.category);
       // 原生 SVG tooltip（hover 显示类型和连接度）
       const deg = degree[n.id] || 0;
       circle.innerHTML = `<title>📌 ${n.name}\n📂 类型：${catLabels[n.category]||n.category}\n🔗 连接度：${deg}（前置/后继）</title>`;
       circle.onmouseenter = () => {
-        circle.style.filter = 'brightness(1.2) drop-shadow(0 0 6px rgba(99,102,241,0.6))';
+        circle.style.filter = `brightness(1.25) drop-shadow(0 0 6px ${categoryGlow[n.category]})`;
+        // 同类型节点同步变亮（群体高亮）
+        Object.values(nodeEls).forEach(ne => {
+          if (ne.circle && ne.circle.dataset.category === n.category) {
+            ne.circle.style.filter = `brightness(1.2) drop-shadow(0 0 4px ${categoryGlow[n.category]})`;
+            ne.circle.style.opacity = '1';
+          } else if (ne.circle) {
+            ne.circle.style.opacity = '0.35';
+          }
+        });
       };
       circle.onmouseleave = () => {
         circle.style.filter = '';
+        Object.values(nodeEls).forEach(ne => {
+          if (ne.circle) { ne.circle.style.filter = ''; ne.circle.style.opacity = '1'; }
+        });
       };
       circle.onclick = () => {
         if (graphJustDragged) { graphJustDragged = false; return; }
@@ -1415,8 +1442,17 @@
             <span class="text-[10px] text-slate-500 w-20 text-right">薄弱${s.weak_count} · 错题${s.total_wrong}</span>
             <span class="text-slate-500 text-xs group-hover:text-indigo-400 transition flex-shrink-0 arrow">▶</span>
           </div>
-          <div class="student-detail hidden mt-2 pt-2 border-t border-slate-700/50 text-xs text-slate-400">
-            点击查看雷达图掌握度详情 →
+          <div class="student-detail hidden mt-3 pt-3 border-t border-slate-700/40">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div class="h-40">
+                <div class="text-[10px] text-slate-500 mb-1">📊 掌握度雷达</div>
+                <div class="inline-radar" data-student="${s.student_id}" style="width:100%; height:140px;"></div>
+              </div>
+              <div class="text-xs">
+                <div class="text-[10px] text-slate-500 mb-1">⚠️ 薄弱知识点</div>
+                <div class="inline-weak text-slate-300" data-student="${s.student_id}">加载中...</div>
+              </div>
+            </div>
           </div>
         </div>
       `;
@@ -1431,13 +1467,61 @@
     if (isHidden) {
       detail.classList.remove('hidden');
       arrow.textContent = '▼';
-      // 展开详情（复用 loadStudentDetail 的逻辑）
-      loadStudentDetail(studentId);
-      // 把详情 panel 滚动到可视区
-      setTimeout(() => document.getElementById('student-detail')?.scrollIntoView({behavior: 'smooth', block: 'center'}), 200);
+      // 内联渲染雷达图 + 薄弱知识点
+      loadInlineStudentDetail(row, studentId);
     } else {
       detail.classList.add('hidden');
       arrow.textContent = '▶';
+    }
+  }
+
+  // 学生行内联展开：小雷达图 + 薄弱知识点列表
+  async function loadInlineStudentDetail(row, studentId) {
+    const radarBox = row.querySelector('.inline-radar');
+    const weakBox = row.querySelector('.inline-weak');
+    if (!radarBox || radarBox.dataset.loaded) return;
+    radarBox.dataset.loaded = '1';
+    try {
+      const r = await fetch(API + '/teacher/student/' + studentId);
+      const data = await r.json();
+      const bkt = data.bkt || {};
+      const items = Object.entries(bkt);
+      // 雷达图（最多 6 个概念）
+      const radarItems = items.slice(0, 6);
+      const chart = echarts.init(radarBox);
+      chart.setOption({
+        tooltip: { trigger: 'item' },
+        radar: {
+          indicator: radarItems.map(([k]) => ({ name: k.slice(0, 6), max: 1 })),
+          center: ['50%', '55%'], radius: '60%',
+          splitLine: { lineStyle: { color: 'rgba(100,116,139,0.3)' } },
+          axisLine: { lineStyle: { color: 'rgba(100,116,139,0.3)' } },
+          axisName: { color: '#94a3b8', fontSize: 10 },
+          splitArea: { show: false },
+        },
+        series: [{
+          type: 'radar',
+          data: [{ value: radarItems.map(([, v]) => v), areaStyle: { color: 'rgba(99,102,241,0.35)' }, lineStyle: { color: '#818cf8' }, itemStyle: { color: '#818cf8' } }],
+        }],
+        animationDuration: 400,
+      });
+      // 薄弱知识点（掌握度 < 0.6）
+      const weak = items.filter(([, v]) => v < 0.6).sort((a, b) => a[1] - b[1]);
+      if (weak.length === 0) {
+        weakBox.innerHTML = '<span class="text-emerald-400 text-xs">🎉 暂无明显薄弱点</span>';
+      } else {
+        weakBox.innerHTML = weak.slice(0, 5).map(([k, v]) => {
+          const pct = Math.round(v * 100);
+          const rgb = pct < 40 ? '244,63,94' : '251,191,36';
+          return `<div class="flex items-center gap-2 mb-1.5">
+            <span class="text-slate-300 truncate flex-1">${k}</span>
+            <div class="w-14 h-1 rounded-full bg-slate-700 overflow-hidden"><div class="h-full" style="width:${pct}%; background:rgb(${rgb});"></div></div>
+            <span class="text-[10px] text-slate-400 w-8 text-right">${pct}%</span>
+          </div>`;
+        }).join('');
+      }
+    } catch (e) {
+      radarBox.innerHTML = '<div class="text-xs text-rose-400">加载失败</div>';
     }
   }
 
@@ -1997,13 +2081,29 @@
   function showResult(q, verdict, explanation) {
     const r = document.getElementById('exam-result');
     r.classList.remove('hidden');
+    const isCorrect = verdict === '通过';
+    const mainColor = isCorrect ? 'emerald' : 'rose';
     r.innerHTML = `
-      <div class="bg-slate-900/50 rounded-xl p-4 border border-slate-700/50">
-        <div class="font-semibold mb-2 ${verdict==='通过'?'text-emerald-400':'text-rose-400'}">
-          ${verdict==='通过'?'✅ 回答正确':'❌ 回答错误'}
+      <div class="relative rounded-xl p-4 border overflow-hidden"
+           style="background:linear-gradient(135deg, rgba(${isCorrect?'16,185,129':'244,63,94'},0.15), rgba(${isCorrect?'16,185,129':'244,63,94'},0.05));
+                  border-color:rgba(${isCorrect?'16,185,129':'244,63,94'},0.35);
+                  box-shadow: 0 0 0 1px rgba(${isCorrect?'16,185,129':'244,63,94'},0.15), 0 8px 24px rgba(${isCorrect?'16,185,129':'244,63,94'},0.15)">
+        <div class="flex items-center gap-2 mb-2">
+          <span class="text-2xl">${isCorrect?'🎉':'😅'}</span>
+          <div class="font-semibold text-lg ${isCorrect?'text-emerald-300':'text-rose-300'}">
+            ${isCorrect?'回答正确！':'回答错误'}
+          </div>
         </div>
-        <div class="text-sm text-slate-300">${explanation || ''}</div>
+        <div class="text-sm text-slate-200 leading-relaxed prose-cm-result">${explanation || ''}</div>
+        <div class="mt-3 flex gap-2">
+          <button onclick="generateQuestion()" class="px-3 py-1.5 rounded-lg bg-${mainColor}-600 hover:bg-${mainColor}-500 text-white text-xs font-medium shadow transition">🔁 再来一道</button>
+          <button onclick="switchTab('chat'); sendQuick('${encodeURI(q.question||'')}')" class="px-3 py-1.5 rounded-lg bg-slate-700/60 hover:bg-slate-600 text-slate-300 text-xs transition">💬 问 AI 详解</button>
+        </div>
       </div>`;
+    // 解析加粗（**xxx** → <b>xxx</b>）
+    r.querySelectorAll('.prose-cm-result').forEach(el => {
+      el.innerHTML = marked.parse(el.textContent);
+    });
   }
 
   function renderGradeResult(data, code) {
@@ -2012,19 +2112,30 @@
     const review = data.review || {};
     const sb = data.sandbox_track || {};
     const ast = data.ast_track || {};
+    const score = review.correctness_score || 0;
+    const isPass = score >= 60;
+    const rgb = isPass ? '16,185,129' : '244,63,94';
+    const toneCls = isPass ? 'emerald' : 'rose';
     r.innerHTML = `
-      <div class="bg-slate-900/50 rounded-xl p-4 border border-slate-700/50 space-y-3">
-        <div class="flex items-center gap-3">
-          <span class="text-lg font-bold ${(review.correctness_score||0)>=60?'text-emerald-400':'text-rose-400'}">${review.correctness || '判定中'}</span>
-          <span class="text-xs px-2 py-0.5 rounded bg-indigo-500/20 text-indigo-300">正确性 ${review.correctness_score ?? '-'}/100</span>
-          <span class="text-xs px-2 py-0.5 rounded bg-amber-500/20 text-amber-300">规范 ${review.style_score ?? '-'}/100</span>
+      <div class="rounded-xl p-4 border space-y-3"
+           style="background:linear-gradient(135deg, rgba(${rgb},0.12), rgba(${rgb},0.04));
+                  border-color:rgba(${rgb},0.3);">
+        <div class="flex items-center gap-3 pb-2 border-b border-slate-700/50">
+          <span class="text-2xl">${isPass?'🎉':'💪'}</span>
+          <div class="text-lg font-bold text-${toneCls}-300">${review.correctness || '判定中'}</div>
+          <span class="text-[10px] px-2 py-0.5 rounded-full bg-indigo-500/20 border border-indigo-500/40 text-indigo-300 font-medium">正确性 ${score}/100</span>
+          <span class="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/20 border border-amber-500/40 text-amber-300 font-medium">规范 ${review.style_score ?? '-'}/100</span>
         </div>
-        ${sb.total ? `<div class="text-sm text-slate-400">🧪 沙箱通过率: <b class="text-emerald-400">${sb.passed}/${sb.total}</b></div>` : ''}
-        <div class="text-sm text-slate-400">${data.ast_text || ''}</div>
-        ${review.complexity_analysis ? `<div class="text-sm"><b class="text-purple-300">复杂度分析：</b>${review.complexity_analysis}</div>` : ''}
-        ${(review.bugs||[]).length ? `<div class="text-sm"><b class="text-rose-300">🐛 问题：</b><ul class="list-disc ml-5">${review.bugs.map(b=>`<li>${b}</li>`).join('')}</ul></div>` : ''}
-        ${(review.suggestions||[]).length ? `<div class="text-sm"><b class="text-emerald-300">💡 建议：</b><ul class="list-disc ml-5">${review.suggestions.map(s=>`<li>${s}</li>`).join('')}</ul></div>` : ''}
-        ${review.encouragement ? `<div class="text-sm text-amber-200 italic">${review.encouragement}</div>` : ''}
+        ${sb.total ? `<div class="text-sm text-slate-300"><span class="text-xs text-slate-500">🧪 沙箱</span>　通过 <b class="text-emerald-400">${sb.passed}</b> / ${sb.total}　<span class="text-slate-500 text-xs">· 用时 ${sb.runtime_ms ?? '-'}ms</span></div>` : ''}
+        ${data.ast_text ? `<div class="text-sm text-slate-400 border-l-2 border-slate-600 pl-2">${data.ast_text}</div>` : ''}
+        ${review.complexity_analysis ? `<div class="text-sm"><span class="text-xs text-purple-400 font-semibold">📐 复杂度</span> ${review.complexity_analysis}</div>` : ''}
+        ${(review.bugs||[]).length ? `<div class="text-sm"><span class="text-xs text-rose-400 font-semibold">🐛 问题</span><ul class="list-disc ml-5 mt-1 space-y-1.5">${review.bugs.map(b=>`<li class="text-slate-300">${b}</li>`).join('')}</ul></div>` : ''}
+        ${(review.suggestions||[]).length ? `<div class="text-sm"><span class="text-xs text-emerald-400 font-semibold">💡 建议</span><ul class="list-disc ml-5 mt-1 space-y-1.5">${review.suggestions.map(s=>`<li class="text-slate-300">${s}</li>`).join('')}</ul></div>` : ''}
+        ${review.encouragement ? `<div class="text-sm text-amber-200 italic pt-1 border-t border-slate-700/30">${review.encouragement}</div>` : ''}
+        <div class="flex gap-2 pt-2 border-t border-slate-700/30">
+          <button onclick="generateQuestion()" class="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-medium shadow transition">🔁 再来一道</button>
+          <button onclick="switchTab('chat'); sendQuick('${encodeURI('帮我批改代码: ' + code.slice(0,120))}')" class="px-3 py-1.5 rounded-lg bg-slate-700/60 hover:bg-slate-600 text-slate-300 text-xs transition">💬 问 AI 改进</button>
+        </div>
       </div>`;
   }
 
