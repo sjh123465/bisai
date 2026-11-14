@@ -89,7 +89,8 @@
 
   .graph-node { cursor: grab; }
   .graph-node:active { cursor: grabbing; }
-  .graph-node.label { font-size: 11px; fill: #e2e8f0; pointer-events: none; paint-order: stroke; stroke: #0f172a; stroke-width: 3px; stroke-linejoin: round; }
+  .graph-node.label { font-size: 10px; fill: #e2e8f0; pointer-events: none; paint-order: stroke; stroke: #0f172a; stroke-width: 2px; stroke-linejoin: round; }
+  .graph-label-bg { pointer-events: none; }
   .graph-edge { stroke: #475569; stroke-width: 1; opacity: 0.45; }
 
   .thinking-tag { color: #a78bfa; font-style: italic; font-size: 0.8rem; }
@@ -165,12 +166,26 @@
   }
   .welcome-card:hover { border-color: rgba(99,102,241,0.5); }
   .welcome-card .welcome-title { display: flex; align-items: center; gap: 10px; font-weight: 600; color: #e2e8f0; margin-bottom: 4px; }
-  .welcome-card .welcome-body { color: #94a3b8; font-size: 13px; line-height: 1.7; overflow: hidden; transition: max-height 0.3s; }
-  .welcome-card .welcome-body.collapsed { max-height: 28px; }
-  .welcome-card .welcome-body.expanded { max-height: 400px; }
+  .welcome-card .welcome-arrow {
+    margin-left: auto; font-size: 10px; color: #818cf8;
+    transition: transform 0.25s ease; display: inline-block;
+    width: 18px; height: 18px; line-height: 18px; text-align: center;
+    border-radius: 50%; background: rgba(99,102,241,0.15);
+  }
+  .welcome-card.expanded .welcome-arrow { transform: rotate(180deg); }
+  .welcome-card .welcome-body { color: #94a3b8; font-size: 13px; line-height: 1.7; overflow: hidden; transition: max-height 0.3s ease; }
+  .welcome-card .welcome-body.collapsed { max-height: 22px; }
+  .welcome-card .welcome-body.expanded { max-height: 420px; }
   .welcome-card .welcome-body ul { margin: 4px 0 0 16px; padding: 0; }
   .welcome-card .welcome-body li { margin: 2px 0; }
-  .welcome-card .welcome-toggle { font-size: 10px; color: #6366f1; margin-top: 6px; opacity: 0.7; }
+  .welcome-card .welcome-toggle {
+    display: inline-block; margin-top: 8px;
+    font-size: 11px; color: #a5b4fc;
+    background: rgba(99,102,241,0.12); border: 1px solid rgba(99,102,241,0.3);
+    border-radius: 999px; padding: 2px 10px;
+    transition: all 0.2s; user-select: none;
+  }
+  .welcome-card .welcome-toggle:hover { background: rgba(99,102,241,0.25); color: #e0e7ff; }
 
 
   /* Tab 切换淡入 */
@@ -347,7 +362,7 @@
       <div id="graph-loader" class="graph-loading">
         <div class="graph-spinner"></div>
       </div>
-      <svg id="graph-svg" width="100%" height="calc(100vh - 420px)" class="min-h-[400px] bg-slate-900/50"></svg>
+      <svg id="graph-svg" width="100%" height="calc(100vh - 360px)" class="min-h-[460px] bg-slate-900/50"></svg>
     </div>
 
     <!-- 学情 Tab -->
@@ -917,8 +932,9 @@
 
   function renderGraph(data) {
     const svg = document.getElementById('graph-svg');
-    const width = svg.clientWidth;
-    const height = 600;
+    const width = svg.clientWidth || 900;
+    // 用实际渲染高度，避免布局按 600px 计算导致底部节点被容器裁掉
+    const height = svg.clientHeight || 600;
     svg.innerHTML = '';
 
     // 为每个节点分配位置（圆形布局 + 轻微随机偏移）
@@ -965,7 +981,7 @@
         const a = nodeMap[e.source], b = nodeMap[e.target];
         const dx = b.x - a.x, dy = b.y - a.y;
         const dist = Math.sqrt(dx*dx + dy*dy) || 1;
-        const rest = 105 + a.r + b.r;
+        const rest = 118 + a.r + b.r;
         const force = (dist - rest) * 0.02;
         a.vx += dx/dist * force; a.vy += dy/dist * force;
         b.vx -= dx/dist * force; b.vy -= dy/dist * force;
@@ -996,10 +1012,10 @@
         }
       }
     }
-    // 边界收缩
+    // 标签避让交给渲染阶段的智能选位处理，这里只做边界收缩
     for (const n of nodes) {
       n.x = Math.max(34, Math.min(width - 34, n.x));
-      n.y = Math.max(30, Math.min(height - 46, n.y));
+      n.y = Math.max(30, Math.min(height - n.r - 32, n.y));
     }
 
     // 渲染边
@@ -1013,11 +1029,14 @@
       svg.appendChild(line);
       edgeEls.push({...e, line});
     }
-    // 渲染节点（分类配色 + 连接度半径 + 拖拽）
+    // 渲染节点：分两层绘制 —— 先画全部圆形，再统一画全部标签
+    // 这样任何节点的圆都不会盖住其他节点的文字
     const nodeEls = {};
+    const catLabels = {chapter:'章节', structure:'数据结构', algorithm:'算法', operation:'操作', paradigm:'范式', concept:'概念'};
+
+    // ---- 第一层：圆形节点 ----
     for (const n of nodes) {
       const color = categoryColors[n.category] || '#6366f1';
-      const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
       const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
       circle.setAttribute('cx', n.x); circle.setAttribute('cy', n.y);
       circle.setAttribute('r', n.r);
@@ -1028,9 +1047,8 @@
       circle.setAttribute('data-id', n.id);
       circle.setAttribute('data-name', n.name);
       // 原生 SVG tooltip（hover 显示类型和连接度）
-      const catLabel = {chapter:'章节', structure:'数据结构', algorithm:'算法', operation:'操作', paradigm:'范式', concept:'概念'};
       const deg = degree[n.id] || 0;
-      circle.innerHTML = `<title>📌 ${n.name}\n📂 类型：${catLabel[n.category]||n.category}\n🔗 连接度：${deg}（前置/后继）</title>`;
+      circle.innerHTML = `<title>📌 ${n.name}\n📂 类型：${catLabels[n.category]||n.category}\n🔗 连接度：${deg}（前置/后继）</title>`;
       circle.onmouseenter = () => {
         circle.style.filter = 'brightness(1.2) drop-shadow(0 0 6px rgba(99,102,241,0.6))';
       };
@@ -1041,14 +1059,8 @@
         if (graphJustDragged) { graphJustDragged = false; return; }
         sendQuick(n.name);
       };
-      const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-      text.setAttribute('x', n.x); text.setAttribute('y', n.y + n.r + 14);
-      text.setAttribute('class', 'graph-node label');
-      text.setAttribute('text-anchor', 'middle');
-      text.textContent = n.name.length > 8 ? n.name.slice(0,8)+'…' : n.name;
-      g.appendChild(circle); g.appendChild(text);
-      svg.appendChild(g);
-      nodeEls[n.id] = {circle, text};
+      svg.appendChild(circle);
+      nodeEls[n.id] = {circle, text: null};
 
       // ---- 拖拽交互 ----
       circle.addEventListener('pointerdown', (ev) => {
@@ -1065,6 +1077,77 @@
       });
     }
 
+    // ---- 第二层：全部文字标签（永远在所有圆之上，自动避让 + 半透明底衬） ----
+    const placed = [];
+    // 连接度高的节点优先选位，重要标签优先获得最佳位置
+    const labelOrder = [...nodes].sort((a, b) => (degree[b.id] || 0) - (degree[a.id] || 0));
+
+    for (const n of labelOrder) {
+      const label = n.name.length > 10 ? n.name.slice(0, 10) + '…' : n.name;
+      const w = label.length * 11 + 8;
+      const h = 15;
+      // 8 个候选方位：下/上/右/左 + 四个对角
+      const cands = [
+        { x: n.x - w / 2, y: n.y + n.r + 4 },
+        { x: n.x - w / 2, y: n.y - n.r - 4 - h },
+        { x: n.x + n.r + 4, y: n.y - h / 2 },
+        { x: n.x - n.r - 4 - w, y: n.y - h / 2 },
+        { x: n.x + n.r * 0.7 + 2, y: n.y + n.r * 0.7 + 2 },
+        { x: n.x - n.r * 0.7 - 2 - w, y: n.y + n.r * 0.7 + 2 },
+        { x: n.x + n.r * 0.7 + 2, y: n.y - n.r * 0.7 - 2 - h },
+        { x: n.x - n.r * 0.7 - 2 - w, y: n.y - n.r * 0.7 - 2 - h },
+      ];
+      const overlapArea = (a, b) => {
+        const ox = Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x);
+        const oy = Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y);
+        return ox > 0 && oy > 0 ? ox * oy : 0;
+      };
+      // 逐候选计算惩罚分，取重叠最少的位置（而不是硬塞第一个）
+      let box = cands[0], bestPenalty = Infinity;
+      for (const c of cands) {
+        const rr = { ...c, w, h };
+        let penalty = 0;
+        // 越界惩罚
+        penalty += (Math.max(0, 2 - c.x) + Math.max(0, c.x + w - (width - 2))) * 400;
+        penalty += (Math.max(0, 2 - c.y) + Math.max(0, c.y + h - (height - 2))) * 400;
+        // 与其他已放置标签的重叠面积
+        for (const p of placed) penalty += overlapArea(rr, p) * 3;
+        // 与其他节点圆的重叠
+        for (const o of nodes) {
+          if (o === n) continue;
+          const nx = Math.max(c.x, Math.min(o.x, c.x + w));
+          const ny = Math.max(c.y, Math.min(o.y, c.y + h));
+          const ddx = o.x - nx, ddy = o.y - ny;
+          if (ddx * ddx + ddy * ddy < (o.r + 1) * (o.r + 1)) penalty += 300;
+        }
+        if (penalty < bestPenalty) { bestPenalty = penalty; box = c; }
+        if (penalty === 0) break;
+      }
+      placed.push({ ...box, w, h });
+
+      // 半透明底衬：即使节点密集，文字也清晰可读
+      const bg = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+      bg.setAttribute('x', box.x); bg.setAttribute('y', box.y);
+      bg.setAttribute('width', w); bg.setAttribute('height', h);
+      bg.setAttribute('rx', 4);
+      bg.setAttribute('fill', 'rgba(15,23,42,0.8)');
+      bg.setAttribute('stroke', 'rgba(99,102,241,0.25)');
+      bg.setAttribute('stroke-width', 0.8);
+      bg.setAttribute('class', 'graph-label-bg');
+      svg.appendChild(bg);
+
+      const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+      text.setAttribute('x', box.x + w / 2);
+      text.setAttribute('y', box.y + h / 2 + 4);
+      text.setAttribute('class', 'graph-node label');
+      text.setAttribute('text-anchor', 'middle');
+      text.textContent = label;
+      svg.appendChild(text);
+      nodeEls[n.id].text = text;
+      nodeEls[n.id].bg = bg;
+    }
+
+
     // 全局拖拽监听（只挂载一次）
     if (!svg._dragInit) {
       svg._dragInit = true;
@@ -1079,7 +1162,15 @@
         n.y = Math.max(30, Math.min(st.height - 46, p.y));
         const els = st.nodeEls[n.id];
         els.circle.setAttribute('cx', n.x); els.circle.setAttribute('cy', n.y);
-        els.text.setAttribute('x', n.x); els.text.setAttribute('y', n.y + n.r + 14);
+        // 拖拽时标签固定在节点下方，底衬同步移动
+        const tw = els.text.textContent.length * 11 + 8;
+        els.text.setAttribute('x', n.x);
+        els.text.setAttribute('y', n.y + n.r + 15.5);
+        if (els.bg) {
+          els.bg.setAttribute('x', n.x - tw / 2);
+          els.bg.setAttribute('y', n.y + n.r + 4);
+          els.bg.setAttribute('width', tw);
+        }
         for (const e of st.edgeEls) {
           const a = st.nodeMap[e.source], b = st.nodeMap[e.target];
           if (e.source === n.id) { e.line.setAttribute('x1', a.x); e.line.setAttribute('y1', a.y); }
@@ -1447,6 +1538,7 @@
       <div class="welcome-title">
         <div class="w-7 h-7 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center font-bold text-white text-xs">C</div>
         <span>你好！我是 CodeMentor 🤖</span>
+        <span class="welcome-arrow" id="welcome-arrow">▼</span>
       </div>
       <div class="welcome-body collapsed" id="welcome-body">
         我可以帮你做这几件事：
@@ -1458,20 +1550,26 @@
           <li>🎯 <b>BKT 知识追踪</b> — 每次答题后贝叶斯更新掌握概率，发现你的薄弱点</li>
           <li>🗺️ <b>图谱 62 节点 / 69 前置关系</b> — 点击节点直接提问，搜索快速定位</li>
         </ul>
-        <div class="welcome-toggle" id="welcome-toggle">展开更多 ▼</div>
       </div>
+      <div class="welcome-toggle" id="welcome-toggle">▾ 展开更多能力</div>
     `;
-    wc.onclick = (e) => {
-      if (e.target.tagName === 'BUTTON') return;
+    // 点击整张卡片或底部按钮都能切换
+    const toggleWelcome = () => {
       const body = document.getElementById('welcome-body');
       const btn = document.getElementById('welcome-toggle');
-      if (body.classList.contains('collapsed')) {
-        body.classList.remove('collapsed'); body.classList.add('expanded');
-        btn.textContent = '收起 ▲';
-      } else {
+      const expanded = body.classList.contains('expanded');
+      if (expanded) {
         body.classList.remove('expanded'); body.classList.add('collapsed');
-        btn.textContent = '展开更多 ▼';
+        wc.classList.remove('expanded');
+        btn.textContent = '▾ 展开更多能力';
+      } else {
+        body.classList.remove('collapsed'); body.classList.add('expanded');
+        wc.classList.add('expanded');
+        btn.textContent = '▴ 收起';
       }
+    };
+    wc.onclick = (e) => {
+      if (e.target.closest('.welcome-toggle') || e.target.closest('.welcome-title')) toggleWelcome();
     };
     chat.appendChild(wc);
     // 加载右侧仪表盘
