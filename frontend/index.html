@@ -1044,7 +1044,8 @@
     try {
       const resp = await fetch(API + '/teacher/report');
       const data = await resp.json();
-      content.innerHTML = marked.parse(data.report);
+      const report = data.report || '⚠️ 报告生成失败，AI 未返回有效内容，请稍后重试。';
+      content.innerHTML = marked.parse(report);
     } catch(e) { content.textContent = '❌ ' + e.message; }
   }
 
@@ -1228,7 +1229,7 @@
     const typeMap = {choice:'选择题', judge:'判断题', code:'编程题'};
     document.getElementById('exam-type-badge').textContent = typeMap[q.type] || q.type;
     document.getElementById('exam-concept-badge').textContent = q.concept;
-    document.getElementById('exam-question-text').innerHTML = marked.parse(q.question);
+    document.getElementById('exam-question-text').innerHTML = marked.parse(q.question || '（题目内容为空）');
     document.getElementById('exam-hint').classList.add('hidden');
 
     const opts = document.getElementById('exam-options');

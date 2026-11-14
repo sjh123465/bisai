@@ -25,7 +25,8 @@ class LLMService:
         ]
         try:
             resp = await llm.chat(messages, temperature=0.3)
-            return resp["choices"][0]["message"]["content"]
+            content = resp["choices"][0]["message"]["content"]
+            return content or "⚠️ AI 未返回有效内容，请稍后重试。"
         except Exception as e:
             return f"[LLM 摘要失败: {e}]"
 
