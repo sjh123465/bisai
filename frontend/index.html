@@ -317,9 +317,18 @@
         </div>
         <div id="exam-result" class="hidden space-y-3"></div>
         <div id="retry-list" class="hidden space-y-2"></div>
-        <div id="exam-empty" class="text-center py-12 text-slate-500">
-          <div class="text-5xl mb-3">📝</div>
-          <p>选择知识点后点击「生成题目」开始练习</p>
+        <div id="exam-empty" class="text-center py-10 px-6">
+          <div class="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-br from-indigo-500/20 to-purple-500/20 border border-indigo-500/30 mb-4">
+            <span class="text-3xl">📝</span>
+          </div>
+          <p class="text-slate-300 font-medium mb-1">准备好开始练习了吗？</p>
+          <p class="text-xs text-slate-500 mb-5">选择一个知识点，AI 会为你生成题目 · 双轨批改给出反馈</p>
+          <div class="flex flex-wrap gap-2 justify-center">
+            <button onclick="quickExam('快速排序','编程题')" class="px-3 py-1.5 rounded-lg bg-indigo-500/20 border border-indigo-500/40 text-indigo-300 text-xs hover:bg-indigo-500/30 transition">⚡ 快排 · 编程</button>
+            <button onclick="quickExam('红黑树','选择题')" class="px-3 py-1.5 rounded-lg bg-purple-500/20 border border-purple-500/40 text-purple-300 text-xs hover:bg-purple-500/30 transition">⚡ 红黑树 · 选择</button>
+            <button onclick="quickExam('BFS','编程题')" class="px-3 py-1.5 rounded-lg bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 text-xs hover:bg-emerald-500/30 transition">⚡ BFS · 编程</button>
+            <button onclick="quickExam('动态规划','选择题')" class="px-3 py-1.5 rounded-lg bg-amber-500/20 border border-amber-500/40 text-amber-300 text-xs hover:bg-amber-500/30 transition">⚡ 动规 · 选择</button>
+          </div>
         </div>
       </div>
     </div>
@@ -585,6 +594,15 @@
       localStorage.setItem('cm_role', data.role);
       refreshUserUI();
       closeLogin();
+      // 登录成功后发欢迎语 + 根据角色推荐
+      const welcomeMsg = data.role === 'teacher'
+        ? `👩‍🏫 欢迎回来，<b>${data.username}</b>！已为你切到「📊 学情」驾驶舱。\n\n你可以：\n- 查看全班薄弱知识点分布\n- 点「🤖 LLM 生成报告」让 AI 写学情分析\n- 右侧栏实时追踪图谱规模`
+        : `👨‍🎓 欢迎，<b>${data.username}</b>！试试这些：\n\n- 💬 直接问：「红黑树和 AVL 有什么区别？」\n- 📝 切到「练一练」Tab 开始刷题\n- 🗺️ 图谱 Tab 浏览学科结构`;
+      // 清掉之前的欢迎卡片
+      const chatBox = document.getElementById('chat-messages');
+      chatBox.innerHTML = '';
+      addMessage('assistant', welcomeMsg, false);
+      chatBox.scrollTop = chatBox.scrollHeight;
       if (data.role === 'teacher') switchTab('teacher');
     } catch (e) {
       msg.textContent = '网络错误: ' + e.message; msg.className = 'text-xs text-rose-400 mb-3';
@@ -1009,6 +1027,16 @@
       circle.setAttribute('class', 'graph-node');
       circle.setAttribute('data-id', n.id);
       circle.setAttribute('data-name', n.name);
+      // 原生 SVG tooltip（hover 显示类型和连接度）
+      const catLabel = {chapter:'章节', structure:'数据结构', algorithm:'算法', operation:'操作', paradigm:'范式', concept:'概念'};
+      const deg = degree[n.id] || 0;
+      circle.innerHTML = `<title>📌 ${n.name}\n📂 类型：${catLabel[n.category]||n.category}\n🔗 连接度：${deg}（前置/后继）</title>`;
+      circle.onmouseenter = () => {
+        circle.style.filter = 'brightness(1.2) drop-shadow(0 0 6px rgba(99,102,241,0.6))';
+      };
+      circle.onmouseleave = () => {
+        circle.style.filter = '';
+      };
       circle.onclick = () => {
         if (graphJustDragged) { graphJustDragged = false; return; }
         sendQuick(n.name);
@@ -1203,20 +1231,48 @@
       el.innerHTML = '<p class="text-xs text-slate-500">暂无学生数据 — 学生答题后自动出现</p>';
       return;
     }
-    el.innerHTML = students.map(s => {
+    el.innerHTML = students.map((s, idx) => {
       const pct = Math.round(s.avg_mastery * 100);
       const color = pct < 40 ? 'text-rose-400' : pct < 70 ? 'text-amber-400' : 'text-emerald-400';
+      const barFrom = pct < 40 ? 'from-rose-500' : pct < 70 ? 'from-amber-500' : 'from-emerald-500';
+      const barTo = pct < 40 ? 'to-red-500' : pct < 70 ? 'to-orange-500' : 'to-teal-500';
       return `
-        <div class="flex items-center gap-3 p-2 rounded-lg bg-slate-800/50 hover:bg-slate-700/50 cursor-pointer transition" onclick='loadStudentDetail("${s.student_id}")'>
-          <span class="text-sm text-slate-200 w-28 truncate">${s.student_id}</span>
-          <div class="flex-1 h-2 bg-slate-700 rounded-full overflow-hidden">
-            <div class="h-full bg-gradient-to-r from-rose-500 to-emerald-500" style="width:${pct}%"></div>
+        <div class="student-row group p-2.5 rounded-lg bg-slate-800/40 hover:bg-slate-700/50 cursor-pointer transition border border-slate-700/30 hover:border-indigo-500/30"
+             onclick="toggleStudentRow(this, '${s.student_id}')">
+          <div class="flex items-center gap-3">
+            <span class="text-[10px] w-5 h-5 rounded-full bg-slate-700/50 text-slate-400 flex items-center justify-center flex-shrink-0 group-hover:bg-indigo-500/20 group-hover:text-indigo-300 transition">${idx+1}</span>
+            <span class="text-sm text-slate-200 w-24 truncate flex-1">${s.student_id}</span>
+            <div class="w-28 h-1.5 bg-slate-700/50 rounded-full overflow-hidden">
+              <div class="h-full bg-gradient-to-r ${barFrom} ${barTo} rounded-full transition-all duration-500" style="width:${pct}%"></div>
+            </div>
+            <span class="text-xs ${color} w-10 text-right font-medium">${pct}%</span>
+            <span class="text-[10px] text-slate-500 w-20 text-right">薄弱${s.weak_count} · 错题${s.total_wrong}</span>
+            <span class="text-slate-500 text-xs group-hover:text-indigo-400 transition flex-shrink-0 arrow">▶</span>
           </div>
-          <span class="text-xs ${color} w-10 text-right">${pct}%</span>
-          <span class="text-xs text-slate-500 w-16 text-right">薄弱${s.weak_count} · 错题${s.total_wrong}</span>
+          <div class="student-detail hidden mt-2 pt-2 border-t border-slate-700/50 text-xs text-slate-400">
+            点击查看雷达图掌握度详情 →
+          </div>
         </div>
       `;
     }).join('');
+  }
+
+  // 学生列表行展开/收起
+  function toggleStudentRow(row, studentId) {
+    const detail = row.querySelector('.student-detail');
+    const arrow = row.querySelector('.arrow');
+    const isHidden = detail.classList.contains('hidden');
+    if (isHidden) {
+      detail.classList.remove('hidden');
+      arrow.textContent = '▼';
+      // 展开详情（复用 loadStudentDetail 的逻辑）
+      loadStudentDetail(studentId);
+      // 把详情 panel 滚动到可视区
+      setTimeout(() => document.getElementById('student-detail')?.scrollIntoView({behavior: 'smooth', block: 'center'}), 200);
+    } else {
+      detail.classList.add('hidden');
+      arrow.textContent = '▶';
+    }
   }
 
   async function loadStudentDetail(studentId) {
@@ -1448,6 +1504,54 @@
   }
   // 每 30 秒自动刷新
   setInterval(refreshDashboard, 30000);
+
+  // ---------- 练一练快速启动（空状态引导按钮） ----------
+  async function quickExam(conceptName, typeName) {
+    const sel = document.getElementById('exam-concept');
+    const typeSel = document.getElementById('exam-type');
+    // 尝试匹配下拉选项
+    const match = Array.from(sel.options).find(o =>
+      o.textContent.trim() === conceptName || o.value.includes(conceptName)
+    );
+    if (match) {
+      sel.value = match.value;
+    } else {
+      // 没找到也硬塞一个
+      const opt = document.createElement('option');
+      opt.value = conceptName; opt.textContent = conceptName;
+      sel.appendChild(opt); sel.value = conceptName;
+    }
+    // 匹配题型
+    const typeMatch = Array.from(typeSel.options).find(o =>
+      o.textContent.includes(typeName.slice(0, 3)) || o.value.includes(typeName.slice(0, 2))
+    );
+    if (typeMatch) typeSel.value = typeMatch.value;
+    switchTab('practice');
+    await generateQuestionDirect();
+  }
+
+  // 直接调 generateQuestion（跳过按钮 event 依赖）
+  async function generateQuestionDirect() {
+    const concept = document.getElementById('exam-concept').value;
+    const qtype = document.getElementById('exam-type').value;
+    if (!concept) return;
+    const q = document.getElementById('exam-question');
+    const empty = document.getElementById('exam-empty');
+    const result = document.getElementById('exam-result');
+    empty.classList.add('hidden'); result.classList.add('hidden'); q.classList.add('hidden');
+    q.classList.remove('hidden');
+    q.innerHTML = `<div class="text-center py-6 text-slate-400"><div class="inline-block w-8 h-8 border-2 border-indigo-500/30 border-t-indigo-500 rounded-full animate-spin"></div><p class="mt-2 text-sm">🎲 AI 正在出题...</p></div>`;
+    try {
+      const resp = await fetch(API + '/exam/generate', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ concept_id: concept, type: qtype }),
+      });
+      const data = await resp.json();
+      renderQuestion(data);
+    } catch (e) {
+      q.innerHTML = `<div class="text-rose-400 text-sm">❌ 生成失败：${e.message}</div>`;
+    }
+  }
 
   // ==================== 练一练：出题 + 批改 ====================
   let currentQuestion = null;
