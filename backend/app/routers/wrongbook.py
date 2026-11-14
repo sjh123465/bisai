@@ -48,6 +48,20 @@ async def list_wrong(student_id: str, concept_id: Optional[str] = None):
     return wb.list(student_id, concept_id)
 
 
+@router.get("/retry/{student_id}")
+async def retry_questions(student_id: str, limit: int = 10):
+    """错题重做：返回该学生的错题列表（按知识点去重，取最新一道）"""
+    wb = get_wrongbook()
+    return {"questions": wb.get_retry_questions(student_id, limit)}
+
+
+@router.get("/counts/{student_id}")
+async def wrong_counts(student_id: str):
+    """获取该学生各知识点答错次数（学情推荐权重用）"""
+    wb = get_wrongbook()
+    return wb.get_wrong_count_by_student(student_id)
+
+
 @router.delete("/clear/{student_id}")
 async def clear_wrong(student_id: str):
     wb = get_wrongbook()

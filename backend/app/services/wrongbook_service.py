@@ -99,6 +99,35 @@ class WrongBookService:
             items = [i for i in items if i["concept_id"] == concept_id]
         return items[::-1]  # 倒序
 
+    def get_retry_questions(self, student_id: str, limit: int = 10) -> list[dict]:
+        """错题重做：取该学生所有错题，按知识点去重（取最新一道），返回可重做题目列表"""
+        items = self._data.get(student_id, [])
+        # 按知识点去重，保留最新的
+        latest: dict[str, dict] = {}
+        for it in items:
+            cid = it.get("concept_id")
+            if cid and (cid not in latest or it.get("time", "") > latest[cid].get("time", "")):
+                latest[cid] = it
+        # 按时间倒序，取前 limit 道
+        retry = sorted(latest.values(), key=lambda x: x.get("time", ""), reverse=True)[:limit]
+        return [
+            {
+                "concept_id": it.get("concept_id"),
+                "question": it.get("question"),
+                "wrong_time": it.get("time"),
+            }
+            for it in retry
+        ]
+
+    def get_wrong_count_by_student(self, student_id: str) -> dict[str, int]:
+        """获取某学生每个知识点的答错次数（用于学情推荐权重）"""
+        counts: dict[str, int] = {}
+        for it in self._data.get(student_id, []):
+            cid = it.get("concept_id")
+            if cid:
+                counts[cid] = counts.get(cid, 0) + 1
+        return counts
+
     def clear(self, student_id: str):
         self._data[student_id] = []
         self._save()

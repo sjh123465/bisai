@@ -145,6 +145,7 @@
             <option value="code">编程题</option>
           </select>
           <button onclick="generateQuestion()" class="px-4 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-sm">🎲 生成题目</button>
+          <button onclick="loadRetryQuestions()" class="px-4 py-1.5 rounded-lg bg-rose-600/80 hover:bg-rose-500 text-sm">📕 错题重做</button>
         </div>
       </div>
       <div class="p-4 max-h-[calc(100vh-380px)] overflow-y-auto space-y-4">
@@ -166,6 +167,7 @@
           </div>
         </div>
         <div id="exam-result" class="hidden space-y-3"></div>
+        <div id="retry-list" class="hidden space-y-2"></div>
         <div id="exam-empty" class="text-center py-12 text-slate-500">
           <div class="text-5xl mb-3">📝</div>
           <p>选择知识点后点击「生成题目」开始练习</p>
@@ -810,6 +812,51 @@
       renderQuestion(data);
     } catch (e) { alert('生成失败: ' + e); }
     finally { btn.disabled = false; btn.textContent = '🎲 生成题目'; }
+  }
+
+  async function loadRetryQuestions() {
+    const listEl = document.getElementById('retry-list');
+    const empty = document.getElementById('exam-empty');
+    const q = document.getElementById('exam-question');
+    const result = document.getElementById('exam-result');
+    empty.classList.add('hidden');
+    q.classList.add('hidden');
+    result.classList.add('hidden');
+    listEl.classList.remove('hidden');
+    listEl.innerHTML = '<p class="text-sm text-slate-400">⏳ 加载错题中...</p>';
+    try {
+      const data = await fetch('/api/wrongbook/retry/demo_student?limit=10').then(r => r.json());
+      const questions = data.questions || [];
+      if (questions.length === 0) {
+        listEl.innerHTML = '<div class="text-center py-8 text-slate-500"><div class="text-4xl mb-2">🎉</div><p>暂无错题，继续保持！</p></div>';
+        return;
+      }
+      listEl.innerHTML = `
+        <div class="text-sm text-slate-400 mb-2">共 ${questions.length} 道错题（按知识点去重），点击重做：</div>
+        ${questions.map((item, i) => `
+          <div class="bg-slate-900/50 rounded-lg p-3 border border-slate-700/50 hover:border-rose-500/50 cursor-pointer transition" onclick='pickRetry(${i})'>
+            <div class="flex justify-between items-center mb-1">
+              <span class="text-sm font-medium text-slate-200">${item.concept_id}</span>
+              <span class="text-xs text-slate-500">${(item.wrong_time||'').slice(0,16)}</span>
+            </div>
+            <div class="text-xs text-slate-400 line-clamp-2">${(item.question && item.question.question) || '（无题干）'}</div>
+          </div>
+        `).join('')}
+      `;
+      window._retryQuestions = questions;
+    } catch (e) {
+      listEl.innerHTML = '<p class="text-rose-400 text-sm">加载失败: ' + e + '</p>';
+    }
+  }
+
+  function pickRetry(idx) {
+    const item = window._retryQuestions[idx];
+    if (!item || !item.question) return;
+    document.getElementById('retry-list').classList.add('hidden');
+    currentQuestion = item.question;
+    if (!currentQuestion.concept_id) currentQuestion.concept_id = item.concept_id;
+    if (!currentQuestion.concept) currentQuestion.concept = item.concept_id;
+    renderQuestion(currentQuestion);
   }
 
   function renderQuestion(q) {

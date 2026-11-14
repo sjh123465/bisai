@@ -155,14 +155,31 @@ class AgentService:
                 graph = get_graph()
                 mastery = bkt.get_mastery(sid)
 
-                # 1. 找出最薄弱的 3 个知识点
-                weak = sorted(mastery.items(), key=lambda x: x[1])[:3]
-                weak_lines = "\n".join(f"- {k}: {v:.0%}" for k, v in weak) or "（暂无答题数据，默认推荐算法基础）"
+                # 获取错题数，作为推荐权重因子
+                from app.services.wrongbook_service import get_wrongbook
+                wrong_counts = get_wrongbook().get_wrong_count_by_student(sid)
+                max_wrong = max(wrong_counts.values()) if wrong_counts else 1
+
+                # 综合权重 = 薄弱度(1-mastery)*0.6 + 错题归一化*0.4
+                all_concepts = set(mastery.keys()) | set(wrong_counts.keys())
+                scored = []
+                for cid in all_concepts:
+                    m = mastery.get(cid, 0.3)
+                    wc = wrong_counts.get(cid, 0)
+                    weight = (1 - m) * 0.6 + (wc / max_wrong if max_wrong else 0) * 0.4
+                    scored.append((cid, m, wc, weight))
+
+                # 1. 按综合权重排序取最薄弱 3 个
+                scored.sort(key=lambda x: x[3], reverse=True)
+                weak = scored[:3]
+                weak_lines = "\n".join(
+                    f"- {cid}: 掌握度 {m:.0%}，错题 {wc} 次，综合优先级 {w:.2f}"
+                    for cid, m, wc, w in weak
+                ) or "（暂无答题数据，默认推荐算法基础）"
 
                 # 2. 结合图谱：为每个薄弱点找前置知识（先补前置再学当前）
                 path_lines = []
-                focus_nodes = []
-                for cid, _ in weak:
+                for cid, m, wc, w in weak:
                     node = graph.get_node(cid)
                     if not node:
                         matches = graph.search_nodes(cid, top_k=1)
@@ -170,13 +187,13 @@ class AgentService:
                             cid = matches[0]["id"]
                             node = matches[0]
                     if node:
-                        focus_nodes.append(cid)
                         prereqs = graph.get_upstream(cid)
+                        reason = f"掌握度 {m:.0%}" + (f"，累计答错 {wc} 次" if wc else "")
                         if prereqs:
                             names = "、".join(p.get("name", p["id"]) for p in prereqs[:3])
-                            path_lines.append(f"📌 [{node.get('name', cid)}] 前置建议先掌握：{names}")
+                            path_lines.append(f"📌 [{node.get('name', cid)}]（{reason}）建议先掌握前置：{names}")
                         else:
-                            path_lines.append(f"📌 [{node.get('name', cid)}] 无明确前置，可直接开始")
+                            path_lines.append(f"📌 [{node.get('name', cid)}]（{reason}）无明确前置，可直接开始")
 
                 # 3. 若用户指定了 topic，额外给出该主题的相关节点
                 topic_lines = ""
@@ -188,7 +205,7 @@ class AgentService:
                     )
 
                 return (
-                    f"📊 学生 {sid} 当前最薄弱知识点（掌握度从低到高）:\n{weak_lines}\n\n"
+                    f"📊 学生 {sid} 学情优先级（综合掌握度+错题数）:\n{weak_lines}\n\n"
                     f"🧭 基于知识图谱前置关系的学习路径:\n" + ("\n".join(path_lines) if path_lines else "暂无薄弱节点") + topic_lines
                 )
 
