@@ -41,10 +41,10 @@
   .prose-cm .graph-chip { display: inline-flex; align-items: center; gap: 0.25rem; background: linear-gradient(135deg, rgba(99,102,241,0.25), rgba(168,85,247,0.25)); border: 1px solid rgba(99,102,241,0.4); color: #c7d2fe; padding: 0.1rem 0.5rem; border-radius: 9999px; font-size: 0.8em; cursor: pointer; transition: all 0.2s; margin: 0 0.15rem; }
   .prose-cm .graph-chip:hover { background: rgba(99,102,241,0.45); transform: translateY(-1px); }
 
-  .graph-node { fill: #6366f1; stroke: #818cf8; stroke-width: 2; cursor: pointer; transition: all 0.2s; }
-  .graph-node:hover { fill: #818cf8; stroke-width: 3; }
-  .graph-node.label { font-size: 11px; fill: #e2e8f0; pointer-events: none; }
-  .graph-edge { stroke: #475569; stroke-width: 1; opacity: 0.6; }
+  .graph-node { cursor: grab; }
+  .graph-node:active { cursor: grabbing; }
+  .graph-node.label { font-size: 11px; fill: #e2e8f0; pointer-events: none; paint-order: stroke; stroke: #0f172a; stroke-width: 3px; stroke-linejoin: round; }
+  .graph-edge { stroke: #475569; stroke-width: 1; opacity: 0.45; }
 
   .thinking-tag { color: #a78bfa; font-style: italic; font-size: 0.8rem; }
 
@@ -629,6 +629,8 @@
 
   // ---------- 知识图谱可视化（力导向布局） ----------
   let graphData = null;
+  let graphDragState = null;    // 当前拖拽的节点及渲染引用
+  let graphJustDragged = false; // 拖拽后抑制误触发节点点击
   async function loadGraph() {
     const statsEl = document.getElementById('graph-stats');
     statsEl.textContent = '加载中...';
@@ -653,79 +655,159 @@
 
     // 为每个节点分配位置（圆形布局 + 轻微随机偏移）
     const nodes = data.nodes.map(n => {
+      const angle = Math.random() * Math.PI * 2;
+      const radius = 180 + Math.random() * 60;
       return {
         id: n.id, name: n.name || n.id, category: n.category || 'concept',
-        x: width/2 + Math.cos(Math.random() * Math.PI * 2) * 200 + (Math.random()-0.5)*40,
-        y: height/2 + Math.sin(Math.random() * Math.PI * 2) * 200 + (Math.random()-0.5)*40,
-        vx: 0, vy: 0,
+        x: width/2 + Math.cos(angle) * radius,
+        y: height/2 + Math.sin(angle) * radius,
+        vx: 0, vy: 0, r: 7,
       };
     });
-    const edges = data.edges.map(e => ({source: e.source, target: e.target}));
     const nodeMap = Object.fromEntries(nodes.map(n => [n.id, n]));
+    const edges = data.edges
+      .map(e => ({source: e.source, target: e.target}))
+      .filter(e => nodeMap[e.source] && nodeMap[e.target]);
 
-    // 力导向模拟（简单版，迭代 80 次）
-    for (let iter = 0; iter < 80; iter++) {
-      // 排斥力
+    // 连接度 → 节点半径（枢纽节点更大）
+    const degree = {};
+    for (const e of edges) {
+      degree[e.source] = (degree[e.source] || 0) + 1;
+      degree[e.target] = (degree[e.target] || 0) + 1;
+    }
+    for (const n of nodes) n.r = 6 + Math.min(9, (degree[n.id] || 0) * 1.1);
+
+    // 力导向模拟（斥力 + 弹簧 + 中心引力，180 次迭代）
+    for (let iter = 0; iter < 180; iter++) {
+      const cooling = 1 - iter / 200;  // 逐步冷却防震荡
+      // 排斥力（库仑斥力，距离截断避免无限大）
       for (let i = 0; i < nodes.length; i++) {
-        for (let j = i+1; j < nodes.length; j++) {
+        for (let j = i + 1; j < nodes.length; j++) {
           const a = nodes[i], b = nodes[j];
-          const dx = a.x - b.x, dy = a.y - b.y;
-          const dist = Math.sqrt(dx*dx + dy*dy) || 1;
-          const force = 800 / (dist * dist);
-          a.vx += dx/dist * force; a.vy += dy/dist * force;
-          b.vx -= dx/dist * force; b.vy -= dy/dist * force;
+          let dx = a.x - b.x, dy = a.y - b.y;
+          let dist = Math.sqrt(dx*dx + dy*dy) || 1;
+          if (dist < 1) { dx = Math.random() - 0.5; dy = Math.random() - 0.5; dist = 1; }
+          const force = Math.min(3000 / (dist * dist), 2.5);
+          a.vx += dx/dist * force * cooling; a.vy += dy/dist * force * cooling;
+          b.vx -= dx/dist * force * cooling; b.vy -= dy/dist * force * cooling;
         }
       }
-      // 吸引力（边）
+      // 弹簧引力（边）
       for (const e of edges) {
         const a = nodeMap[e.source], b = nodeMap[e.target];
-        if (!a || !b) continue;
         const dx = b.x - a.x, dy = b.y - a.y;
         const dist = Math.sqrt(dx*dx + dy*dy) || 1;
-        const force = (dist - 120) * 0.01;
+        const rest = 105 + a.r + b.r;
+        const force = (dist - rest) * 0.02;
         a.vx += dx/dist * force; a.vy += dy/dist * force;
         b.vx -= dx/dist * force; b.vy -= dy/dist * force;
       }
-      // 居中 + 边界 + 应用
+      // 中心引力（弱） + 阻尼 + 应用
       const cx = width/2, cy = height/2;
       for (const n of nodes) {
-        n.vx += (cx - n.x) * 0.005;
-        n.vy += (cy - n.y) * 0.005;
-        n.vx *= 0.85; n.vy *= 0.85;
+        n.vx += (cx - n.x) * 0.003;
+        n.vy += (cy - n.y) * 0.003;
+        n.vx *= 0.82; n.vy *= 0.82;
         n.x += n.vx; n.y += n.vy;
-        n.x = Math.max(40, Math.min(width - 40, n.x));
-        n.y = Math.max(40, Math.min(height - 40, n.y));
       }
+    }
+    // 碰撞分离：保证节点 + 标签互不重叠
+    for (let pass = 0; pass < 60; pass++) {
+      for (let i = 0; i < nodes.length; i++) {
+        for (let j = i + 1; j < nodes.length; j++) {
+          const a = nodes[i], b = nodes[j];
+          const minDist = a.r + b.r + 26;
+          let dx = a.x - b.x, dy = a.y - b.y;
+          let dist = Math.sqrt(dx*dx + dy*dy) || 0.01;
+          if (dist < minDist) {
+            const push = (minDist - dist) / 2;
+            const ux = dx/dist, uy = dy/dist;
+            a.x += ux * push; a.y += uy * push;
+            b.x -= ux * push; b.y -= uy * push;
+          }
+        }
+      }
+    }
+    // 边界收缩
+    for (const n of nodes) {
+      n.x = Math.max(34, Math.min(width - 34, n.x));
+      n.y = Math.max(30, Math.min(height - 46, n.y));
     }
 
     // 渲染边
+    const edgeEls = [];
     for (const e of edges) {
       const a = nodeMap[e.source], b = nodeMap[e.target];
-      if (!a || !b) continue;
       const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
       line.setAttribute('x1', a.x); line.setAttribute('y1', a.y);
       line.setAttribute('x2', b.x); line.setAttribute('y2', b.y);
       line.setAttribute('class', 'graph-edge');
       svg.appendChild(line);
+      edgeEls.push({...e, line});
     }
-    // 渲染节点
+    // 渲染节点（分类配色 + 连接度半径 + 拖拽）
+    const nodeEls = {};
     for (const n of nodes) {
       const color = categoryColors[n.category] || '#6366f1';
       const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
       const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
       circle.setAttribute('cx', n.x); circle.setAttribute('cy', n.y);
-      circle.setAttribute('r', 10);
+      circle.setAttribute('r', n.r);
       circle.setAttribute('fill', color);
-      circle.setAttribute('stroke', color);
+      circle.setAttribute('stroke', 'rgba(255,255,255,0.35)');
+      circle.setAttribute('stroke-width', 1.5);
       circle.setAttribute('class', 'graph-node');
-      circle.onclick = () => sendQuick(n.name);
+      circle.onclick = () => {
+        if (graphJustDragged) { graphJustDragged = false; return; }
+        sendQuick(n.name);
+      };
       const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-      text.setAttribute('x', n.x); text.setAttribute('y', n.y + 22);
+      text.setAttribute('x', n.x); text.setAttribute('y', n.y + n.r + 14);
       text.setAttribute('class', 'graph-node label');
       text.setAttribute('text-anchor', 'middle');
       text.textContent = n.name.length > 8 ? n.name.slice(0,8)+'…' : n.name;
       g.appendChild(circle); g.appendChild(text);
       svg.appendChild(g);
+      nodeEls[n.id] = {circle, text};
+
+      // ---- 拖拽交互 ----
+      circle.addEventListener('pointerdown', (ev) => {
+        ev.preventDefault(); ev.stopPropagation();
+        graphDragState = {node: n, svg, width, height, nodeEls, edgeEls, nodeMap};
+      });
+      circle.addEventListener('pointerenter', () => {
+        circle.setAttribute('stroke', '#fff');
+        circle.setAttribute('stroke-width', 2.5);
+      });
+      circle.addEventListener('pointerleave', () => {
+        circle.setAttribute('stroke', 'rgba(255,255,255,0.35)');
+        circle.setAttribute('stroke-width', 1.5);
+      });
+    }
+
+    // 全局拖拽监听（只挂载一次）
+    if (!svg._dragInit) {
+      svg._dragInit = true;
+      svg.addEventListener('pointermove', (ev) => {
+        if (!graphDragState) return;
+        const st = graphDragState, n = st.node;
+        const pt = st.svg.createSVGPoint();
+        pt.x = ev.clientX; pt.y = ev.clientY;
+        const p = pt.matrixTransform(st.svg.getScreenCTM().inverse());
+        if (Math.abs(p.x - n.x) > 1 || Math.abs(p.y - n.y) > 1) graphJustDragged = true;
+        n.x = Math.max(34, Math.min(st.width - 34, p.x));
+        n.y = Math.max(30, Math.min(st.height - 46, p.y));
+        const els = st.nodeEls[n.id];
+        els.circle.setAttribute('cx', n.x); els.circle.setAttribute('cy', n.y);
+        els.text.setAttribute('x', n.x); els.text.setAttribute('y', n.y + n.r + 14);
+        for (const e of st.edgeEls) {
+          const a = st.nodeMap[e.source], b = st.nodeMap[e.target];
+          if (e.source === n.id) { e.line.setAttribute('x1', a.x); e.line.setAttribute('y1', a.y); }
+          if (e.target === n.id) { e.line.setAttribute('x2', b.x); e.line.setAttribute('y2', b.y); }
+        }
+      });
+      svg.addEventListener('pointerup', () => { graphDragState = null; });
+      svg.addEventListener('pointerleave', () => { graphDragState = null; });
     }
   }
 
