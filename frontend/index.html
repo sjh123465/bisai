@@ -269,7 +269,8 @@
 
       <!-- 输入区 -->
       <div class="border-t border-slate-700/50 p-3 bg-slate-800/30">
-        <div class="flex gap-2 mb-2 text-xs flex-wrap items-center">
+        <!-- 快捷操作栏（仅对话 Tab 显示） -->
+        <div data-tabs="chat" class="flex gap-2 mb-2 text-xs flex-wrap items-center">
           <button onclick="toggleCodePanel()" class="px-2 py-1 rounded bg-slate-700/70 text-slate-300 hover:bg-slate-600">📎 附加代码</button>
           <button onclick="document.getElementById('img-upload').click()" class="px-2 py-1 rounded bg-slate-700/70 text-slate-300 hover:bg-slate-600">🖼️ 截图提问</button>
           <input type="file" id="img-upload" accept="image/*" class="hidden" onchange="uploadImage(event)">
@@ -685,9 +686,9 @@
     if (name === 'practice') loadExamConcepts();
   }
 
-  // 根据当前 Tab 显示右侧边栏对应内容
+  // 根据当前 Tab 显示所有 data-tabs 元素（通用：右侧边栏 + 输入栏快捷操作等）
   function updateSidebar(tab) {
-    document.querySelectorAll('.side-block').forEach(el => {
+    document.querySelectorAll('[data-tabs]').forEach(el => {
       const tabs = (el.dataset.tabs || '').split(',');
       if (tabs.includes(tab)) el.classList.remove('hidden');
       else el.classList.add('hidden');
