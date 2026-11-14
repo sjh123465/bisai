@@ -118,18 +118,21 @@ async def student_detail(student_id: str):
     weak = bkt.get_weak_points(student_id)
     wrong_counts = wb.get_wrong_count_by_student(student_id)
 
-    # 把知识点 ID 转中文名
-    mastery_with_names = {}
-    for cid, score in mastery.items():
-        node = g.get_node(cid)
-        name = (node or {}).get("name", cid)
-        mastery_with_names[name] = round(score, 3)
+    # 把知识点 ID 转中文名（掌握度 + 薄弱点 + 错题统计统一处理）
+    def _name(cid: str) -> str:
+        return (g.get_node(cid) or {}).get("name", cid)
+
+    mastery_with_names = {_name(cid): round(score, 3) for cid, score in mastery.items()}
+    weak_with_names = [
+        {**w, "concept_name": _name(w["concept_id"])} for w in weak
+    ]
+    wrong_with_names = {_name(cid): n for cid, n in wrong_counts.items()}
 
     return {
         "student_id": student_id,
         "mastery": mastery_with_names,
-        "weak_points": weak,
-        "wrong_counts": wrong_counts,
+        "weak_points": weak_with_names,
+        "wrong_counts": wrong_with_names,
         "total_wrong": sum(wrong_counts.values()),
     }
 

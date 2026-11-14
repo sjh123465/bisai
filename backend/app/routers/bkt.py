@@ -23,9 +23,15 @@ async def record_answer(r: AnswerRecord):
 
 @router.get("/mastery/{student_id}")
 async def get_mastery(student_id: str):
-    """获取学生所有知识点掌握度"""
+    """获取学生所有知识点掌握度（concept_id 已转为中文名，供雷达图直接展示）"""
     bkt = get_bkt()
-    return bkt.get_mastery(student_id)
+    from app.services.graph_service import get_graph
+    g = get_graph()
+    mastery = bkt.get_mastery(student_id)
+    return {
+        (g.get_node(cid) or {}).get("name", cid): score
+        for cid, score in mastery.items()
+    }
 
 
 @router.get("/weak/{student_id}")

@@ -363,8 +363,7 @@
     el.className = 'text-xs text-amber-400 mb-3';
   }
 
-  function refreshUserUI() {
-    const token = localStorage.getItem('cm_token');
+  function refreshUserUI() {    const token = localStorage.getItem('cm_token');
     const user = localStorage.getItem('cm_user');
     const role = localStorage.getItem('cm_role');
     const chip = document.getElementById('user-chip');
@@ -385,6 +384,11 @@
     localStorage.removeItem('cm_user');
     localStorage.removeItem('cm_role');
     refreshUserUI();
+  }
+
+  // 当前学生 ID：登录用户名，未登录用演示账号（学情数据与登录体系打通）
+  function currentStudentId() {
+    return localStorage.getItem('cm_user') || 'demo_student';
   }
 
   async function doLogin(mode) {
@@ -750,7 +754,7 @@
   async function loadTeacher() {
     // 雷达图（示例学生）
     try {
-      const resp = await fetch(API + '/bkt/mastery/demo_student');
+      const resp = await fetch(API + '/bkt/mastery/' + encodeURIComponent(currentStudentId()));
       const mastery = await resp.json();
       renderRadar(mastery);
     } catch(e) {
@@ -759,29 +763,52 @@
       renderRadar(sample);
     }
 
-    // 热力图 + 高频错题榜
+    // 热力图 + 高频错题榜（教师专属）
+    const isTeacher = localStorage.getItem('cm_role') === 'teacher';
     try {
       const resp = await fetch(API + '/teacher/dashboard');
-      const dash = await resp.json();
-      renderHeatmap(dash.heatmap || {});
-      renderWrongRanking(dash.wrong_ranking || []);
+      if (resp.status === 403) {
+        renderHeatmap({});
+        renderWrongRanking([]);
+        let hint = document.getElementById('heatmap-hint');
+        if (!hint) {
+          const el = document.getElementById('heatmap-chart');
+          hint = document.createElement('p');
+          hint.id = 'heatmap-hint';
+          hint.className = 'text-xs text-amber-400/80 p-2';
+          hint.textContent = '🔒 班级热力图为教师专属，使用 teacher 账号登录后可见';
+          el.parentElement.insertBefore(hint, el);
+        }
+      } else {
+        const dash = await resp.json();
+        renderHeatmap(dash.heatmap || {});
+        renderWrongRanking(dash.wrong_ranking || []);
+      }
     } catch(e) {
       renderHeatmap({});
       renderWrongRanking([]);
     }
 
-    // 学生列表
+    // 学生列表（教师专属）
     try {
       const sr = await fetch(API + '/teacher/students');
-      const sd = await sr.json();
-      renderStudentList(sd.students || []);
+      if (sr.status === 403) {
+        renderStudentList([], true);
+      } else {
+        const sd = await sr.json();
+        renderStudentList(sd.students || []);
+      }
     } catch(e) {
       renderStudentList([]);
     }
   }
 
-  function renderStudentList(students) {
+  function renderStudentList(students, forbidden = false) {
     const el = document.getElementById('student-list');
+    if (forbidden) {
+      el.innerHTML = '<p class="text-xs text-amber-400/80">🔒 学生学情列表为教师专属功能，请用 teacher 账号登录</p>';
+      return;
+    }
     if (students.length === 0) {
       el.innerHTML = '<p class="text-xs text-slate-500">暂无学生数据 — 学生答题后自动出现</p>';
       return;
@@ -1044,7 +1071,7 @@
     listEl.classList.remove('hidden');
     listEl.innerHTML = '<p class="text-sm text-slate-400">⏳ 加载错题中...</p>';
     try {
-      const data = await fetch('/api/wrongbook/retry/demo_student?limit=10').then(r => r.json());
+      const data = await fetch('/api/wrongbook/retry/' + encodeURIComponent(currentStudentId()) + '?limit=10').then(r => r.json());
       const questions = data.questions || [];
       if (questions.length === 0) {
         listEl.innerHTML = '<div class="text-center py-8 text-slate-500"><div class="text-4xl mb-2">🎉</div><p>暂无错题，继续保持！</p></div>';
@@ -1135,7 +1162,7 @@
       await fetch('/api/wrongbook/record', {
         method: 'POST', headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({
-          student_id: 'demo_student',
+          student_id: currentStudentId(),
           concept_id: conceptId,
           question: question,
           student_answer: String(answer).slice(0, 200),
