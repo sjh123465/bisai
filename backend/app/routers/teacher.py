@@ -57,8 +57,14 @@ async def dashboard():
         total += info["count"]
     avg_mastery = avg_mastery / total if total > 0 else 0
 
-    # 高频薄弱点
+    # 高频薄弱点（转中文名）
+    def _name(cid: str) -> str:
+        return (g.get_node(cid) or {}).get("name", cid)
     weak_top = sorted(heatmap.items(), key=lambda x: x[1]["avg"])[:10]
+    weak_named = [{"concept_id": k, "concept_name": _name(k), **v} for k, v in weak_top]
+
+    # 热力图转中文 key（前端直接展示）
+    heatmap_named = {_name(cid): info for cid, info in heatmap.items()}
 
     # 高频错题榜
     wrong_ranking = _build_ranking_with_names(wb.get_wrong_ranking(top_n=10))
@@ -70,9 +76,9 @@ async def dashboard():
             "total_concepts_tracked": len(heatmap),
         },
         "graph_stats": stats,
-        "weak_concepts": [{"concept_id": k, **v} for k, v in weak_top],
+        "weak_concepts": weak_named,
         "wrong_ranking": wrong_ranking,
-        "heatmap": heatmap,
+        "heatmap": heatmap_named,
     }
 
 
