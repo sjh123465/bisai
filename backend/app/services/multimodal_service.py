@@ -81,15 +81,15 @@ class MultimodalService:
                 if resp.status_code != 200:
                     err = resp.text[:300]
                     logger.error(f"多模态调用失败: {resp.status_code} {err}")
-                    if not vendor["separate"]:
+                    if resp.status_code in (400, 403):
                         return {
                             "ok": False,
                             "message": (
-                                f"当前模型 {vendor['model']} 不支持图片识别（错误 {resp.status_code}）。\n\n"
-                                "请在 .env 中配置多模态视觉模型，例如阿里通义千问 VL：\n"
-                                "MULTIMODAL_API_KEY=你的-DashScope-Key\n"
-                                "MULTIMODAL_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1\n"
-                                "MULTIMODAL_MODEL=qwen-vl-plus"
+                                f"视觉模型 {vendor['model']} 暂未开通或无权限（错误 {resp.status_code}）。\n\n"
+                                "请按以下步骤开通（有免费额度）：\n"
+                                "1. 打开 https://bailian.console.aliyun.com/#/model-market\n"
+                                "2. 搜索「qwen2.5-vl-7b-instruct」并点击「开通服务」\n"
+                                "3. 开通后即可使用截图答疑功能"
                             ),
                         }
                     return {"ok": False, "message": f"多模态服务调用失败({resp.status_code})"}
