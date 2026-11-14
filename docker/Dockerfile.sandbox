@@ -1,0 +1,14 @@
+# CodeMentor 沙箱专用镜像 — 强隔离执行学生代码
+# 构建: docker build -f docker/Dockerfile.sandbox -t codementor-sandbox:latest docker/
+FROM python:3.11-slim
+
+# 非 root 用户运行，进一步收权
+RUN useradd -m -u 1000 sandboxer
+USER sandboxer
+WORKDIR /code
+
+# 禁用字节码写入与网络相关行为
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+CMD ["python"]

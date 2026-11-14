@@ -1,0 +1,23 @@
+# CodeMentor 整体编排
+# 用法（在仓库根目录）: docker compose -f docker/docker-compose.yml up -d --build
+services:
+  codementor:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.backend
+    container_name: codementor-api
+    ports:
+      - "8080:8080"
+    env_file:
+      - ../backend/.env
+    environment:
+      - SANDBOX_MODE=auto
+      - RATE_LIMIT_PER_MIN=60
+    volumes:
+      - codementor-data:/app/data
+      # 挂载 docker CLI 与 socket，使后端可启动沙箱容器（嵌套调用）
+      - /var/run/docker.sock:/var/run/docker.sock
+    restart: unless-stopped
+
+volumes:
+  codementor-data:

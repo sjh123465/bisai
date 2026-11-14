@@ -78,10 +78,12 @@ class ASTAnalyzer(ast.NodeVisitor):
     def visit_For(self, node: ast.For):
         self._handle_loop(node)
         self.generic_visit(node)
+        self._after_loop(node)
 
     def visit_While(self, node: ast.While):
         self._handle_loop(node)
         self.generic_visit(node)
+        self._after_loop(node)
 
     def _handle_loop(self, node):
         self.features.loop_count += 1
@@ -111,23 +113,52 @@ class ASTAnalyzer(ast.NodeVisitor):
 
     # ---------- 死循环检测 ----------
     def _check_possible_infinite_loop(self):
-        """简单启发式：while 循环条件为 True，且循环体内无 break"""
+        """启发式检测两类死循环：
+        1. while True 且循环体内无 break
+        2. while 条件变量在循环体内从未被更新（如 while i < 10 中 i 不变）
+        """
         try:
             tree = ast.parse(self.source)
         except SyntaxError:
             return
 
         for node in ast.walk(tree):
-            if isinstance(node, ast.While):
-                # 条件是常量 True
-                if isinstance(node.test, ast.Constant) and node.test.value is True:
-                    has_break = any(isinstance(s, ast.Break) for s in ast.walk(node))
-                    if not has_break:
-                        self.features.possible_infinite_loop = True
-                        self.features.infinite_loop_hint = (
-                            f"检测到 while True 循环（第 {node.lineno} 行），循环体内未发现 break 语句，"
-                            "这可能导致死循环"
-                        )
+            if not isinstance(node, ast.While):
+                continue
+            has_break = any(isinstance(s, ast.Break) for s in ast.walk(node))
+
+            # 情形 1：常量 True
+            if isinstance(node.test, ast.Constant) and node.test.value is True:
+                if not has_break:
+                    self.features.possible_infinite_loop = True
+                    self.features.infinite_loop_hint = (
+                        f"检测到 while True 循环（第 {node.lineno} 行），循环体内未发现 break 语句，"
+                        "这可能导致死循环"
+                    )
+                continue
+
+            # 情形 2：条件变量未在循环体内更新
+            if has_break:
+                continue
+            cond_vars = {n.id for n in ast.walk(node.test) if isinstance(n, ast.Name)}
+            if not cond_vars:
+                continue
+            assigned = set()
+            for s in ast.walk(node):
+                if isinstance(s, ast.Assign):
+                    assigned |= {t.id for t in s.targets if isinstance(t, ast.Name)}
+                elif isinstance(s, ast.AugAssign) and isinstance(s.target, ast.Name):
+                    assigned.add(s.target.id)
+                elif isinstance(s, ast.For) and isinstance(s.target, ast.Name):
+                    assigned.add(s.target.id)
+            not_updated = cond_vars - assigned
+            if not_updated:
+                self.features.possible_infinite_loop = True
+                self.features.infinite_loop_hint = (
+                    f"while 循环（第 {node.lineno} 行）的条件变量 "
+                    f"{', '.join(sorted(not_updated))} 在循环体内从未更新，"
+                    "循环条件永远为真，将导致死循环"
+                )
 
     # ---------- 复杂度估算 ----------
     def _estimate_complexity(self):
@@ -139,7 +170,7 @@ class ASTAnalyzer(ast.NodeVisitor):
             reason_parts.append(f"存在递归调用({', '.join(f.recursive_funcs)})，若递归树深度未控制，复杂度可能指数级增长")
         elif f.has_nested_loop:
             f.estimated_complexity = "O(n²) ~ O(n³)"
-            reason_parts.append(f"嵌套循环最大深度 {f._max_loop_depth}，通常意味着平方/立方级复杂度")
+            reason_parts.append(f"嵌套循环最大深度 {f.max_loop_depth}，通常意味着平方/立方级复杂度")
         elif f.loop_count > 0:
             f.estimated_complexity = "O(n)"
             reason_parts.append(f"{f.loop_count} 层线性循环")

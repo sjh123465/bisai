@@ -1,0 +1,13 @@
+# CodeMentor 后端镜像 — 构建上下文必须为仓库根目录
+# 构建: docker build -f docker/Dockerfile.backend -t codementor-api:latest .
+FROM python:3.11-slim
+
+WORKDIR /app
+COPY backend/requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY backend/app ./app
+COPY frontend ./frontend
+
+EXPOSE 8080
+CMD ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8080"]

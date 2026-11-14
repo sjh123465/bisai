@@ -78,6 +78,10 @@
       <button onclick="switchTab('practice')" id="tab-practice" class="px-3 py-1 rounded-md bg-slate-700/70 text-slate-300 text-sm hover:bg-slate-600">📝 练一练</button>
       <button onclick="switchTab('graph')" id="tab-graph" class="px-3 py-1 rounded-md bg-slate-700/70 text-slate-300 text-sm hover:bg-slate-600">🗺️ 图谱</button>
       <button onclick="switchTab('teacher')" id="tab-teacher" class="px-3 py-1 rounded-md bg-slate-700/70 text-slate-300 text-sm hover:bg-slate-600">📊 学情</button>
+      <!-- 用户区 -->
+      <span id="user-chip" class="hidden items-center gap-2 px-2.5 py-1 rounded-full text-xs bg-indigo-500/15 border border-indigo-400/30 text-indigo-300"></span>
+      <button id="btn-login" onclick="openLogin()" class="px-3 py-1 rounded-md bg-emerald-600 text-white text-sm hover:bg-emerald-500">登录</button>
+      <button id="btn-logout" onclick="doLogout()" class="hidden px-2.5 py-1 rounded-md bg-slate-700/70 text-slate-300 text-xs hover:bg-slate-600">退出</button>
     </div>
   </div>
 </header>
@@ -330,6 +334,84 @@
   const API = '/api';
   const chatHistory = [];
   let isStreaming = false;
+
+  // ---------- 认证：全局 fetch 拦截 ----------
+  const _origFetch = window.fetch.bind(window);
+  window.fetch = async function(input, init = {}) {
+    const url = typeof input === 'string' ? input : (input && input.url) || '';
+    const isApi = url.startsWith('/api') || url.startsWith(API);
+    if (isApi && !url.includes('/auth/login') && !url.includes('/auth/register')) {
+      const token = localStorage.getItem('cm_token');
+      if (token) {
+        init.headers = Object.assign({}, init.headers, { 'Authorization': 'Bearer ' + token });
+      }
+    }
+    const resp = await _origFetch(input, init);
+    if (resp.status === 401 && isApi && !url.includes('/auth/')) {
+      showLoginHint('请先登录（演示账号 teacher/123456 或 student/123456）');
+    }
+    return resp;
+  };
+
+  function openLogin() { document.getElementById('login-modal').classList.remove('hidden'); }
+  function closeLogin() { document.getElementById('login-modal').classList.add('hidden'); }
+
+  function showLoginHint(msg) {
+    openLogin();
+    const el = document.getElementById('login-msg');
+    el.textContent = msg;
+    el.className = 'text-xs text-amber-400 mb-3';
+  }
+
+  function refreshUserUI() {
+    const token = localStorage.getItem('cm_token');
+    const user = localStorage.getItem('cm_user');
+    const role = localStorage.getItem('cm_role');
+    const chip = document.getElementById('user-chip');
+    if (token && user) {
+      chip.textContent = (role === 'teacher' ? '👩‍🏫 ' : '👨‍🎓 ') + user;
+      chip.classList.remove('hidden'); chip.classList.add('flex');
+      document.getElementById('btn-login').classList.add('hidden');
+      document.getElementById('btn-logout').classList.remove('hidden');
+    } else {
+      chip.classList.add('hidden');
+      document.getElementById('btn-login').classList.remove('hidden');
+      document.getElementById('btn-logout').classList.add('hidden');
+    }
+  }
+
+  function doLogout() {
+    localStorage.removeItem('cm_token');
+    localStorage.removeItem('cm_user');
+    localStorage.removeItem('cm_role');
+    refreshUserUI();
+  }
+
+  async function doLogin(mode) {
+    const username = document.getElementById('login-user').value.trim();
+    const password = document.getElementById('login-pass').value;
+    const role = document.getElementById('login-role').value;
+    const msg = document.getElementById('login-msg');
+    if (!username || !password) { msg.textContent = '请输入用户名和密码'; msg.className = 'text-xs text-rose-400 mb-3'; return; }
+    try {
+      const resp = await _origFetch(API + '/auth/' + mode, {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ username, password, role }),
+      });
+      const data = await resp.json();
+      if (!resp.ok) { msg.textContent = data.detail || '登录失败'; msg.className = 'text-xs text-rose-400 mb-3'; return; }
+      localStorage.setItem('cm_token', data.token);
+      localStorage.setItem('cm_user', data.username);
+      localStorage.setItem('cm_role', data.role);
+      refreshUserUI();
+      closeLogin();
+      if (data.role === 'teacher') switchTab('teacher');
+    } catch (e) {
+      msg.textContent = '网络错误: ' + e.message; msg.className = 'text-xs text-rose-400 mb-3';
+    }
+  }
+
+  refreshUserUI();
 
   // ---------- 启动检查 ----------
   async function checkAPI() {
@@ -1169,5 +1251,26 @@
     event.target.value = '';
   }
 </script>
+
+<!-- ============ 登录弹窗 ============ -->
+<div id="login-modal" class="hidden fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm">
+  <div class="w-[380px] bg-slate-900 border border-slate-700 rounded-2xl p-6 shadow-2xl">
+    <div class="flex items-center justify-between mb-5">
+      <h2 class="text-lg font-bold">🔐 登录 CodeMentor</h2>
+      <button onclick="closeLogin()" class="text-slate-400 hover:text-white text-xl leading-none">×</button>
+    </div>
+    <div id="login-msg" class="text-xs text-slate-400 mb-3">演示账号：teacher/123456（教师）· student/123456（学生）</div>
+    <input id="login-user" placeholder="用户名" class="w-full mb-3 px-3 py-2 rounded-lg bg-slate-800 border border-slate-600 text-sm focus:outline-none focus:border-indigo-400" />
+    <input id="login-pass" type="password" placeholder="密码" class="w-full mb-3 px-3 py-2 rounded-lg bg-slate-800 border border-slate-600 text-sm focus:outline-none focus:border-indigo-400" />
+    <select id="login-role" class="w-full mb-4 px-3 py-2 rounded-lg bg-slate-800 border border-slate-600 text-sm focus:outline-none focus:border-indigo-400">
+      <option value="student">学生角色（注册）</option>
+      <option value="teacher">教师角色（注册）</option>
+    </select>
+    <div class="flex gap-2">
+      <button onclick="doLogin('login')" class="flex-1 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium">登 录</button>
+      <button onclick="doLogin('register')" class="flex-1 py-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200 text-sm">注册新账号</button>
+    </div>
+  </div>
+</div>
 </body>
 </html>

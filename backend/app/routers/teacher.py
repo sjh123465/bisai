@@ -1,11 +1,16 @@
-"""教师端路由"""
-from fastapi import APIRouter
+"""教师端路由 — 全部接口需 teacher 角色（Bearer Token）"""
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
+from app.core.security import require_role
 from app.services.bkt_service import get_bkt
 from app.services.graph_service import get_graph
 from app.services.wrongbook_service import get_wrongbook
 
-router = APIRouter(prefix="/api/teacher", tags=["教师端"])
+router = APIRouter(
+    prefix="/api/teacher",
+    tags=["教师端"],
+    dependencies=[Depends(require_role("teacher"))],  # 整组接口需 teacher 角色
+)
 
 
 class LLMService:

@@ -1,5 +1,6 @@
 """CodeMentor 主入口 — FastAPI 应用"""
 import os
+import time
 import asyncio
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
@@ -8,6 +9,8 @@ from fastapi.staticfiles import StaticFiles
 
 from app.core.config import get_settings
 from app.core.logger import get_logger
+from app.core.metrics import metrics
+from app.core.ratelimit import RateLimitMiddleware
 from app.routers import routers_list
 
 logger = get_logger("main")
@@ -47,6 +50,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# L4 安全层：限流 + 监控（顺序：CORS 最外层 → 限流 → 监控）
+app.add_middleware(RateLimitMiddleware)
+from app.core.metrics import MetricsMiddleware
+app.add_middleware(MetricsMiddleware)
+
 # 注册路由
 for r in routers_list:
     app.include_router(r)
@@ -69,7 +77,14 @@ async def root():
 
 @app.get("/health")
 async def health():
-    return {"status": "ok"}
+    """健康检查（含运行指标摘要，无需鉴权，供探活）"""
+    snap = metrics.snapshot()
+    return {
+        "status": "ok",
+        "uptime_seconds": snap["uptime_seconds"],
+        "total_requests": snap["total_requests"],
+        "error_rate": snap["error_rate"],
+    }
 
 
 if __name__ == "__main__":
