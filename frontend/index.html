@@ -10,8 +10,9 @@
 
 <!-- Markdown 渲染 + 代码高亮 -->
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-<!-- XSS 消毒：marked v5+ 已移除内置 sanitize，需外部消毒 -->
-<script src="https://cdn.jsdelivr.net/npm/dompurify@3.2.4/dist/purify.min.js"></script>
+<!-- XSS 消毒：marked v5+ 已移除内置 sanitize，需外部消毒；主 CDN 失败时自动切备用源 -->
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3.2.4/dist/purify.min.js"
+        onerror="var s=document.createElement('script');s.src='https://unpkg.com/dompurify@3.2.4/dist/purify.min.js';document.head.appendChild(s);"></script>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/github-dark.min.css">
 <script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"></script>
 <script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/languages/python.min.js"></script>
@@ -763,9 +764,42 @@
     return lit.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   }
 
+  // 轻量兜底消毒器 —— DOMPurify 未加载成功（CDN 不可达）时使用，保证功能不中断
+  function fallbackSanitize(html, allowDataAttrs) {
+    const tpl = document.createElement('template');
+    tpl.innerHTML = html || '';
+    // 1. 移除危险标签
+    tpl.content.querySelectorAll('script,style,iframe,object,embed,link,meta,base,form').forEach(el => el.remove());
+    // 2. 清理危险属性
+    tpl.content.querySelectorAll('*').forEach(el => {
+      Array.from(el.attributes).forEach(attr => {
+        const name = attr.name.toLowerCase();
+        const val = (attr.value || '').replace(/[\s\u0000]/g, '').toLowerCase();
+        if (name.startsWith('on')) { el.removeAttribute(attr.name); return; }
+        if (name === 'srcdoc') { el.removeAttribute(attr.name); return; }
+        if ((name === 'href' || name === 'src' || name === 'xlink:href') && val.startsWith('javascript:')) {
+          el.removeAttribute(attr.name);
+        }
+      });
+    });
+    return tpl.innerHTML;
+  }
+
+  // 统一消毒入口：优先 DOMPurify，不可用时退回本地兜底
+  function sanitizeHtml(html, opts) {
+    if (typeof DOMPurify !== 'undefined' && DOMPurify && typeof DOMPurify.sanitize === 'function') {
+      return DOMPurify.sanitize(html, opts || {});
+    }
+    if (!window.__cmDpWarned) {
+      window.__cmDpWarned = true;
+      console.warn('[CodeMentor] DOMPurify 未加载，已启用本地兜底消毒。请检查 CDN 网络。');
+    }
+    return fallbackSanitize(html, opts && opts.ADD_ATTR);
+  }
+
   // Markdown → 消毒后的 HTML（LLM 输出一律走这里，避免 XSS）
   function mdSafe(text) {
-    return DOMPurify.sanitize(marked.parse(text || ''));
+    return sanitizeHtml(marked.parse(text || ''));
   }
 
   function renderContent(content) {
@@ -783,7 +817,7 @@
     html = html.replace(/<a href="graph:([^"]+)">([^<]+)<\/a>/g,
       (m, id, text) => `<span class="graph-chip" data-graph-id="${id}">🏷️ ${text}</span>`);
     // 5. XSS 消毒（marked v5+ 默认不消毒）
-    html = DOMPurify.sanitize(html, { ADD_ATTR: ['data-graph-id'] });
+    html = sanitizeHtml(html, { ADD_ATTR: ['data-graph-id'] });
     // 6. 消毒后还原图谱节点卡片（onclick 由本地生成，可信）
     html = html.replace(/<span class="graph-chip" data-graph-id="([^"]+)">/g,
       (m, id) => `<span class="graph-chip" onclick="askAboutGraph('${id}')" title="点击就该知识点提问">`);
