@@ -1619,6 +1619,7 @@ html.profile-modal-open body { overflow: hidden; }
   align-items: flex-end;
   justify-content: space-between;
   gap: 12px;
+  flex-wrap: wrap;
   margin-bottom: 10px;
 }
 .profile-analysis-meta { margin-bottom: 8px; font-size: 10px; color: var(--ink-tertiary); }

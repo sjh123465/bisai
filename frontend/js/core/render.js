@@ -165,10 +165,10 @@ import { API } from './env.js';
    * @param {boolean} [isStreaming=false] - 是否为流式占位（显示打字光标）
    * @returns {HTMLElement} 气泡外层容器，供后续 updateMessage 使用
    */
-  function addMessage(role, content, isStreaming = false) {
+  function addMessage(role, content, isStreaming = false, timeLabel = '') {
     const container = document.getElementById('chat-messages');
     const wrap = document.createElement('div');
-    const time = new Date().toLocaleTimeString('zh-CN', {hour:'2-digit', minute:'2-digit'});
+    const time = timeLabel || new Date().toLocaleTimeString('zh-CN', {hour:'2-digit', minute:'2-digit'});
     wrap.className = 'chat-msg-wrap ' + role;
     wrap.innerHTML = `
       <div class="cm-avatar">${role === 'user' ? '你' : 'C'}</div>

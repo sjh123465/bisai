@@ -13,6 +13,7 @@ import {
   getRecentRecords,
   getDailyTrend,
 } from '../core/localStore.js';
+import { loadLatestAnalysis, saveLatestAnalysis, clearLatestAnalysis } from '../core/analysisStore.js';
 
 const SCOPE_LABEL = { all: '全部', personal: '个人练习', assignment: '班级作业' };
 const SOURCE_LABEL = { personal: '个人练习', assignment: '班级作业' };
@@ -335,12 +336,66 @@ function _renderConceptChart(concept) {
   _trendChart.resize();
 }
 
+function _updateClearAnalysisButton(show) {
+  const btn = document.getElementById('profile-clear-analysis');
+  if (btn) btn.classList.toggle('hidden', !show);
+}
+
+function _analysisContextLabel(entry) {
+  const scope = SCOPE_LABEL[entry.scope] || entry.scope || '全部';
+  return entry.concept
+    ? `${entry.concept_name || entry.concept} · ${scope}`
+    : `整体 · ${scope}`;
+}
+
+function _fingerprintFor(mode, concept) {
+  const s = STATE.summary || {};
+  const cid = mode === 'concept' && concept ? concept.concept_id : 'all';
+  const last = mode === 'concept' && concept
+    ? (concept.last_time || '')
+    : (s.last_activity_time || '');
+  return [
+    STATE.scope, cid,
+    s.total_attempts || 0,
+    s.correct_attempts || 0,
+    s.weak_count || 0,
+    concept?.attempts || 0,
+    last || '',
+  ].join('|');
+}
+
+function _updateAnalysisHint() {
+  const hintEl = document.getElementById('profile-analysis-hint');
+  if (!hintEl) return;
+  const a = STATE.analysis;
+  if (!a) {
+    hintEl.textContent = '点击上方按钮生成；仅发送汇总数据';
+    return;
+  }
+  const sameScope = a.scope === STATE.scope;
+  const sameConcept = !a.concept || a.concept === STATE.selectedId;
+  if (!sameScope || !sameConcept) {
+    hintEl.textContent = `当前显示的是上次分析（${_analysisContextLabel(a)}）；当前选择已变化，可重新生成`;
+    return;
+  }
+  const concept = a.mode === 'concept'
+    ? STATE.concepts.find(c => c.concept_id === a.concept)
+    : null;
+  const current = _fingerprintFor(a.mode, concept);
+  if (a.fingerprint && current !== a.fingerprint) {
+    hintEl.textContent = '数据已更新，建议重新生成分析';
+  } else {
+    hintEl.textContent = a.cached ? '已加载本地缓存 · 仅本次请求发送' : '仅本次请求发送，服务端不保存';
+  }
+}
+
 function _clearAnalysis(hint) {
   STATE.analysis = null;
   const content = document.getElementById('profile-analysis-content');
   const hintEl = document.getElementById('profile-analysis-hint');
   if (content) content.innerHTML = '';
   if (hintEl) hintEl.textContent = hint || '点击上方按钮生成；仅发送汇总数据';
+  _updateClearAnalysisButton(!!loadLatestAnalysis());
 }
 
 function _setAnalysisLoading(loading) {
@@ -351,18 +406,41 @@ function _setAnalysisLoading(loading) {
   });
 }
 
-function _renderAnalysis(report, mode, concept) {
+function _renderAnalysis(report, mode, concept, meta = {}) {
   const content = document.getElementById('profile-analysis-content');
   const hintEl = document.getElementById('profile-analysis-hint');
   if (!content) return;
-  const context = mode === 'concept' && concept
-    ? `${concept.name || concept.concept_id} · ${SCOPE_LABEL[STATE.scope]}`
-    : `整体 · ${SCOPE_LABEL[STATE.scope]}`;
+  const scopeLabel = SCOPE_LABEL[meta.scope || STATE.scope] || meta.scope || '全部';
+  const context = meta.context || (mode === 'concept' && concept
+    ? `${concept.name || concept.concept_id} · ${scopeLabel}`
+    : `整体 · ${scopeLabel}`);
+  const when = meta.generated_at ? _date(meta.generated_at) : _date(new Date().toISOString());
+  const cacheBadge = meta.cached ? ' · 本地缓存' : '';
   content.innerHTML = `
-    <div class="profile-analysis-meta">${escapeHtml(context)} · ${escapeHtml(_date(new Date().toISOString()))}</div>
+    <div class="profile-analysis-meta">${escapeHtml(context)} · ${escapeHtml(when)}${cacheBadge}</div>
     <div class="prose-cm">${mdSafe(report)}</div>`;
-  if (hintEl) hintEl.textContent = '仅本次请求发送，服务端不保存';
+  if (hintEl) hintEl.textContent = meta.hint || '仅本次请求发送，服务端不保存';
+  _updateClearAnalysisButton(true);
   _scrollToAnalysis();
+}
+
+function clearProfileAnalysisCache() {
+  if (STATE.analysisRequest) {
+    alert('请等待当前分析完成后再清除缓存。');
+    return;
+  }
+  if (!loadLatestAnalysis()) {
+    _updateClearAnalysisButton(false);
+    return;
+  }
+  if (!confirm('确定清除本地保存的上一次 AI 学情分析吗？')) return;
+  clearLatestAnalysis();
+  STATE.analysis = null;
+  const content = document.getElementById('profile-analysis-content');
+  const hintEl = document.getElementById('profile-analysis-hint');
+  if (content) content.innerHTML = '';
+  if (hintEl) hintEl.textContent = '已清除分析缓存；点击按钮可重新生成';
+  _updateClearAnalysisButton(false);
 }
 
 async function generateProfileAnalysis(mode = 'all') {
@@ -375,12 +453,14 @@ async function generateProfileAnalysis(mode = 'all') {
 
   await _loadPlugin();
   const plugin = _pluginCache || {};
+  const requestScope = STATE.scope;
+  const fingerprint = _fingerprintFor(mode, concept);
   const analysisConcepts = STATE.concepts.filter(c => c.attempts > 0);
   if (concept && !analysisConcepts.some(c => c.concept_id === concept.concept_id)) {
     analysisConcepts.push(concept);
   }
   const payload = {
-    scope: STATE.scope,
+    scope: requestScope,
     plugin,
     summary: STATE.summary,
     concepts: analysisConcepts.slice(0, 80).map(c => ({ ...c, series: c.series.slice(-12) })),
@@ -393,7 +473,7 @@ async function generateProfileAnalysis(mode = 'all') {
   const token = ++STATE.analysisToken;
   STATE.analysisRequest = {
     mode,
-    scope: STATE.scope,
+    scope: requestScope,
     concept: mode === 'concept' ? concept.concept_id : null,
   };
   _setAnalysisLoading(true);
@@ -412,8 +492,35 @@ async function generateProfileAnalysis(mode = 'all') {
     const data = await resp.json().catch(() => ({}));
     if (!resp.ok) throw new Error(data.detail || `HTTP ${resp.status}`);
     if (token !== STATE.analysisToken) return;
-    STATE.analysis = { mode, scope: STATE.scope, concept: concept?.concept_id || null, report: data.report };
-    _renderAnalysis(data.report || 'AI 未返回内容。', mode, concept);
+    const entry = saveLatestAnalysis({
+      report: data.report || 'AI 未返回内容。',
+      scope: requestScope,
+      concept_id: mode === 'concept' ? concept.concept_id : null,
+      concept_name: mode === 'concept' ? (concept.name || concept.concept_id) : '',
+      fingerprint,
+      model: data.model || '',
+      generated_at: data.generated_at || new Date().toISOString(),
+    });
+    STATE.analysis = {
+      mode,
+      scope: requestScope,
+      concept: mode === 'concept' ? concept.concept_id : null,
+      concept_name: mode === 'concept' ? (concept.name || concept.concept_id) : '',
+      report: entry.report,
+      fingerprint: entry.fingerprint,
+      generated_at: entry.generated_at,
+      model: entry.model,
+      cached: false,
+    };
+    const context = mode === 'concept'
+      ? `${concept.name || concept.concept_id} · ${SCOPE_LABEL[requestScope]}`
+      : `整体 · ${SCOPE_LABEL[requestScope]}`;
+    _renderAnalysis(entry.report, mode, concept, {
+      scope: requestScope,
+      context,
+      generated_at: entry.generated_at,
+      hint: '已生成并写入本地缓存 · 仅本次请求发送',
+    });
   } catch (e) {
     if (token !== STATE.analysisToken) return;
     if (content) content.innerHTML = `<div class="msg-err">分析失败：${escapeHtml(e.message || String(e))}</div>`;
@@ -427,14 +534,8 @@ async function generateProfileAnalysis(mode = 'all') {
 }
 
 function _maybeClearAnalysisOnChange() {
-  if (!STATE.analysis) return;
-  if (STATE.analysis.scope !== STATE.scope) {
-    _clearAnalysis('数据范围已切换，请重新生成分析。');
-    return;
-  }
-  if (STATE.analysis.mode === 'concept' && STATE.analysis.concept !== STATE.selectedId) {
-    _clearAnalysis('知识点已切换，请重新生成该知识点的分析。');
-  }
+  // 缓存报告不因为切换筛选而消失；只更新“上下文已变化 / 数据已更新”的提示。
+  _updateAnalysisHint();
 }
 
 function setProfileScope(scope) {
@@ -477,8 +578,10 @@ function selectProfileConcept(conceptId) {
 function openProfileDetail(conceptId = null) {
   const modal = _modal();
   if (!modal) return;
+  const cached = loadLatestAnalysis();
   STATE.lastFocus = document.activeElement;
-  STATE.scope = 'all';
+  // 恢复上次分析时的数据范围，让缓存报告与列表上下文一致
+  STATE.scope = cached && SCOPE_LABEL[cached.scope] ? cached.scope : 'all';
   STATE.analysis = null;
   STATE.analysisRequest = null;
   STATE.analysisToken++;
@@ -488,12 +591,46 @@ function openProfileDetail(conceptId = null) {
   _refreshData();
   if (conceptId && STATE.concepts.some(c => c.concept_id === conceptId)) {
     STATE.selectedId = conceptId;
+  } else if (cached?.concept_id && STATE.concepts.some(c => c.concept_id === cached.concept_id)) {
+    STATE.selectedId = cached.concept_id;
   }
   _renderScopeButtons();
   _renderSummary();
   _renderList();
   _renderDetail();
-  _clearAnalysis('点击「AI 分析整体」或知识点详情里的「AI 分析这个知识点」');
+
+  if (cached) {
+    STATE.analysis = {
+      mode: cached.concept_id ? 'concept' : 'all',
+      scope: cached.scope,
+      concept: cached.concept_id || null,
+      concept_name: cached.concept_name || '',
+      report: cached.report,
+      fingerprint: cached.fingerprint || '',
+      generated_at: cached.generated_at || '',
+      model: cached.model || '',
+      cached: true,
+    };
+    const conceptForRender = cached.concept_id
+      ? { concept_id: cached.concept_id, name: cached.concept_name || cached.concept_id }
+      : null;
+    const context = _analysisContextLabel({
+      scope: cached.scope,
+      concept: cached.concept_id,
+      concept_name: cached.concept_name,
+    });
+    _renderAnalysis(cached.report, cached.concept_id ? 'concept' : 'all', conceptForRender, {
+      scope: cached.scope,
+      context,
+      generated_at: cached.generated_at,
+      cached: true,
+    });
+    _updateAnalysisHint();
+    setTimeout(_scrollToAnalysis, 60);
+  } else {
+    _clearAnalysis('点击「AI 分析整体」或知识点详情里的「AI 分析这个知识点」');
+  }
+
   modal.classList.remove('hidden');
   document.documentElement.classList.add('profile-modal-open');
   setTimeout(() => {
@@ -547,6 +684,7 @@ export {
   setProfileScope,
   selectProfileConcept,
   generateProfileAnalysis,
+  clearProfileAnalysisCache,
   goRetryFromProfile,
 };
 Object.assign(window, {
@@ -555,5 +693,6 @@ Object.assign(window, {
   setProfileScope,
   selectProfileConcept,
   generateProfileAnalysis,
+  clearProfileAnalysisCache,
   goRetryFromProfile,
 });

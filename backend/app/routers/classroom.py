@@ -66,6 +66,12 @@ async def create_class(req: CreateClassRequest, user: dict = Depends(require_rol
         return get_classroom().create_class(user["username"], req.name)
     except ClassroomError as e:
         _raise(e)
+    except Exception as e:
+        logger.error(f"创建班级失败: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail="创建班级失败：请检查后端 data 目录是否可写，以及 classroom.json 是否损坏",
+        )
 
 
 @router.get("/classes")

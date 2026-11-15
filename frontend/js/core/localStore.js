@@ -316,9 +316,13 @@ function getPersonalSummary(source = 'all') {
   const total = active.reduce((sum, c) => sum + c.attempts, 0);
   const correct = active.reduce((sum, c) => sum + c.correct, 0);
   const sourceCounts = {};
+  let lastActivity = null;
   p.history.forEach(r => {
     const src = r.source || 'personal';
     sourceCounts[src] = (sourceCounts[src] || 0) + 1;
+    if (_sourceMatches(src, source) && r.time && (!lastActivity || String(r.time) > String(lastActivity))) {
+      lastActivity = r.time;
+    }
   });
   return {
     scope: source,
@@ -333,6 +337,7 @@ function getPersonalSummary(source = 'all') {
       : 0,
     weak_count: active.filter(c => c.mastery < 0.6).length,
     streak_days: getStudyStreak(source),
+    last_activity_time: lastActivity,
     source_counts: sourceCounts,
   };
 }

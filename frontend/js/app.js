@@ -7,6 +7,7 @@ import { addMessage, updateMessage, jsStr, escapeHtml } from './core/render.js';
 import { attachStatusBox, updateStatus, collapseStatus } from './core/status.js';
 import { llmHeaders, hasLLMSettings } from './core/llmSettings.js';
 import { getProfileSummary, getWeakPoints } from './core/localStore.js';
+import { loadChatMessages, appendChatMessage, appendChatTurn, clearChatMessages } from './core/chatStore.js';
 // 设置窗口与班级/作业 UI 通过 window 暴露内联事件入口
 import './features/settings.js';
 import './features/classroom.js';
@@ -21,8 +22,66 @@ import './features/voice.js';
     breaks: true,
     gfm: true,
   });
-  const chatHistory = [];
+  let chatHistory = [];
   let isStreaming = false;
+
+  function _formatChatTime(iso) {
+    if (!iso) return '';
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return '';
+    return d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+  }
+
+  function _removeRenderedChat() {
+    document.querySelectorAll('#chat-messages .chat-msg-wrap, #chat-messages .cm-status-summary').forEach(el => el.remove());
+  }
+
+  function _renderStoredMessage(msg) {
+    const wrap = addMessage(
+      msg.role,
+      msg.role === 'assistant' ? '' : msg.content,
+      false,
+      _formatChatTime(msg.time),
+    );
+    if (msg.role === 'assistant') updateMessage(wrap, msg.content, false);
+  }
+
+  /** 切换/恢复当前账号的本地对话；greeting 只在新账号没有任何历史时写入。 */
+  function reloadChatForCurrentUser({ greeting = '' } = {}) {
+    const box = document.getElementById('chat-messages');
+    const welcome = document.getElementById('chat-welcome');
+    if (!box) return;
+    _removeRenderedChat();
+    let messages = loadChatMessages();
+    if (!messages.length && greeting) {
+      appendChatMessage('assistant', greeting, new Date().toISOString());
+      messages = loadChatMessages();
+    }
+    chatHistory = messages.map(m => ({ role: m.role, content: m.content }));
+    if (!messages.length) {
+      if (welcome) welcome.classList.remove('hidden');
+      box.scrollTop = 0;
+      return;
+    }
+    if (welcome) welcome.classList.add('hidden');
+    messages.forEach(_renderStoredMessage);
+    box.scrollTop = box.scrollHeight;
+  }
+
+  function clearChatUI() {
+    if (isStreaming) {
+      alert('请等待当前回答生成完成后再清空对话。');
+      return;
+    }
+    if (!confirm('确定清空当前账号的本地对话记录吗？此操作只影响当前浏览器。')) return;
+    clearChatMessages();
+    chatHistory = [];
+    _removeRenderedChat();
+    const welcome = document.getElementById('chat-welcome');
+    if (welcome) welcome.classList.remove('hidden');
+    const box = document.getElementById('chat-messages');
+    if (box) box.scrollTop = 0;
+  }
 
   // ---------- 认证：全局 fetch 拦截 ----------
   const _origFetch = window.fetch.bind(window);
@@ -117,6 +176,7 @@ import './features/voice.js';
     localStorage.removeItem('cm_user');
     localStorage.removeItem('cm_role');
     refreshUserUI();
+    reloadChatForCurrentUser();
     window.loadStudentAssignments?.();
   }
 
@@ -139,15 +199,11 @@ import './features/voice.js';
       refreshUserUI();
       closeLogin();
       window.updateRoleUI?.();
-      // 登录成功后发欢迎语 + 根据角色推荐
+      // 登录成功后显示当前账号的本地对话；新账号没有历史时写入一条欢迎语
       const welcomeMsg = data.role === 'teacher'
         ? `欢迎回来，${data.username}。已为你切到「学情」。\n\n你可以：\n- 查看班级作业完成情况与薄弱知识点\n- 创建班级并批量布置统一作业\n- 生成班级学情分析报告`
         : `欢迎，${data.username}。可以从这里开始：\n\n- 直接问：「红黑树和 AVL 有什么区别？」\n- 切到「练一练」开始做题\n- 在「图谱」里浏览学科结构`;
-      // 清掉之前的欢迎卡片
-      const chatBox = document.getElementById('chat-messages');
-      chatBox.innerHTML = '';
-      addMessage('assistant', welcomeMsg, false);
-      chatBox.scrollTop = chatBox.scrollHeight;
+      reloadChatForCurrentUser({ greeting: welcomeMsg });
       if (data.role === 'teacher') switchTab('teacher');
     } catch (e) {
       msg.textContent = '网络错误：' + e.message; msg.className = 'msg-err mb-3';
@@ -157,6 +213,7 @@ import './features/voice.js';
   refreshUserUI();
   window.updateLLMStatus?.();
   switchTab('chat'); // 初始化 Tab 面板显隐（刷新后主区空白的根因）
+  reloadChatForCurrentUser(); // 刷新后恢复当前账号的本地对话
 
   // ---------- 启动检查 ----------
   async function checkAPI() {
@@ -302,13 +359,14 @@ import './features/voice.js';
     }
 
     const code = document.getElementById('code-input').value.trim();
+    const userTime = new Date().toISOString();
     input.value = '';
     isStreaming = true;
     hideWelcome();
     document.getElementById('send-btn').disabled = true;
 
     // 用户消息
-    addMessage('user', message);
+    addMessage('user', message, false, _formatChatTime(userTime));
 
     // AI 消息占位
     const aiWrap = addMessage('assistant', '', true);
@@ -322,7 +380,7 @@ import './features/voice.js';
         body: JSON.stringify({
           message,
           code: code || null,
-          history: chatHistory.slice(-6),
+          history: chatHistory.slice(-12),
           // 本地学情摘要：只用于本次 Prompt，后端不持久化
           profile: getProfileSummary(),
         })
@@ -365,9 +423,10 @@ import './features/voice.js';
         }
       }
 
-      // 保存历史
+      // 保存历史：内存供本轮请求使用，同时写入当前账号的本地持久化
       chatHistory.push({role: 'user', content: message});
       chatHistory.push({role: 'assistant', content: buffer});
+      appendChatTurn(message, buffer, userTime, new Date().toISOString());
     } catch(e) {
       collapseStatus(statusBox);
       updateMessage(aiWrap, '请求失败：' + e.message + '\n\n请确认后端已启动，并在右上角「配置模型」中填写你自己的远程 API Key', false);
@@ -501,12 +560,15 @@ import './features/voice.js';
     const reader = new FileReader();
     reader.onload = async (e) => {
       const dataUrl = e.target.result;   // 完整 data URL，保留真实 MIME（png/jpeg 等）
-      const wrap = addMessage('user', `[图片] ${file.name}`, false);
+      const q = document.getElementById('user-input').value.trim() || '这张图里有什么算法或数据结构？请详细讲解。';
+      const userTime = new Date().toISOString();
+      const userLabel = `[图片] ${file.name}\n${q}`;
+      hideWelcome();
+      const wrap = addMessage('user', userLabel, false, _formatChatTime(userTime));
       // 直接在用户消息后追加图片预览（文件名可能来自本地任意字符，必须转义）
       const bubble = wrap.querySelector('.prose-cm');
-      bubble.innerHTML = `<div><div class="text-xs text-slate-400 mb-1">上传图片：${escapeHtml(file.name)}</div><img src="${e.target.result}" class="max-w-xs rounded-lg inline-block" /></div>`;
+      bubble.innerHTML = `<div><div class="text-xs text-slate-400 mb-1">上传图片：${escapeHtml(file.name)}</div><img src="${e.target.result}" class="max-w-xs rounded-lg inline-block" /><div class="mt-1 text-xs text-slate-400">${escapeHtml(q)}</div></div>`;
 
-      const q = document.getElementById('user-input').value.trim() || '这张图里有什么算法或数据结构？请详细讲解。';
       const aiWrap = addMessage('assistant', '正在识别图片...', true);
       try {
         const res = await fetch('/api/multimodal/analyze', {
@@ -515,6 +577,9 @@ import './features/voice.js';
         }).then(r => r.json());
         if (res.ok) {
           updateMessage(aiWrap, res.answer, false);
+          chatHistory.push({ role: 'user', content: userLabel });
+          chatHistory.push({ role: 'assistant', content: res.answer || '' });
+          appendChatTurn(userLabel, res.answer || '', userTime, new Date().toISOString());
         } else {
           updateMessage(aiWrap, `${res.message || '多模态调用失败'}`, false);
         }
@@ -527,4 +592,4 @@ import './features/voice.js';
   }
 
 // HTML 内联 onclick / onchange 需要全局可见
-Object.assign(window, { openLogin, closeLogin, showLoginHint, fillDemo, refreshUserUI, doLogout, doLogin, checkAPI, switchTab, updateSidebar, loadSidePractice, loadSideWeak, sendMessage, sendQuick, startFromCard, trackTopics, clearTopics, hideWelcome, toggleCodePanel, clearCode, runCode, analyzeCode, uploadImage });
+Object.assign(window, { openLogin, closeLogin, showLoginHint, fillDemo, refreshUserUI, doLogout, doLogin, checkAPI, switchTab, updateSidebar, loadSidePractice, loadSideWeak, sendMessage, sendQuick, startFromCard, trackTopics, clearTopics, hideWelcome, toggleCodePanel, clearCode, runCode, analyzeCode, uploadImage, reloadChatForCurrentUser, clearChatUI });

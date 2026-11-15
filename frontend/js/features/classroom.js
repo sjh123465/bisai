@@ -132,7 +132,15 @@ function openCreateClass() {
   const modal = document.getElementById('class-create-modal');
   if (!modal) return;
   const input = document.getElementById('class-name-input');
-  if (input) input.value = '';
+  if (input) {
+    input.value = '';
+    input.onkeydown = (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        createClassUI();
+      }
+    };
+  }
   _clearMsg('class-create-msg');
   modal.classList.remove('hidden');
   setTimeout(() => input && input.focus(), 100);
@@ -143,6 +151,10 @@ function closeCreateClass() {
 }
 
 async function createClassUI() {
+  if (!_loggedIn() || !_isTeacher()) {
+    _msg('class-create-msg', '请先使用教师账号登录，再创建班级。');
+    return;
+  }
   const name = document.getElementById('class-name-input')?.value.trim() || '';
   if (!name) { _msg('class-create-msg', '请输入班级名称'); return; }
   const btn = document.getElementById('class-create-btn');
@@ -154,7 +166,15 @@ async function createClassUI() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name }),
     });
-    const data = await resp.json();
+    const data = await resp.json().catch(() => ({}));
+    if (resp.status === 401) {
+      closeCreateClass();
+      window.openLogin?.();
+      return;
+    }
+    if (resp.status === 403) {
+      throw new Error('当前账号不是教师，请使用教师账号登录');
+    }
     if (!resp.ok) throw new Error(data.detail || ('HTTP ' + resp.status));
     _teacherClassId = data.id;
     closeCreateClass();

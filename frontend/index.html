@@ -281,6 +281,9 @@
           <button onclick="sendQuick('快速排序为什么会超时？')" class="quick-chip">快排超时排查</button>
           <button onclick="sendQuick('图论我应该先学什么？')" class="quick-chip">学习路径推荐</button>
           <button onclick="sendQuick('请总结一下动态规划的核心思想')" class="quick-chip">动态规划核心</button>
+          <button onclick="clearChatUI()" class="tool-link ml-auto">
+            <svg class="cm-icon cm-icon-sm" aria-hidden="true"><use href="#i-trash"></use></svg>清空对话
+          </button>
         </div>
         <div class="composer-row">
           <textarea id="user-input" rows="2" placeholder="问我任何计算机知识 — 理论、代码、算法... 我会调用工具帮你"
@@ -660,7 +663,7 @@
 </main>
 
 <!-- ============ JS ============ -->
-<script type="module" src="./js/app.js?v=6"></script>
+<script type="module" src="./js/app.js?v=8"></script>
 
 <!-- ============ 个人学情档案 ============ -->
 <div id="profile-detail-modal" class="modal-overlay hidden" style="z-index:115" onclick="if(event.target===this)closeProfileDetail()">
@@ -709,7 +712,10 @@
               <div class="eyebrow">AI review</div>
               <h3 class="panel-title text-base">学情分析</h3>
             </div>
-            <span id="profile-analysis-hint" class="footnote">点击上方按钮生成；仅发送汇总数据</span>
+            <div class="flex items-center gap-2 flex-wrap justify-end">
+              <span id="profile-analysis-hint" class="footnote">点击上方按钮生成；仅发送汇总数据</span>
+              <button id="profile-clear-analysis" onclick="clearProfileAnalysisCache()" class="btn btn-quiet btn-xs hidden">清除缓存</button>
+            </div>
           </div>
           <div id="profile-analysis-content" class="prose-cm text-sm"></div>
         </div>
@@ -750,7 +756,7 @@
     </div>
     <div class="mt-5 pt-4 border-t border-slate-700/50">
       <h3 class="text-sm font-medium mb-1">本地学习数据</h3>
-      <p class="footnote mb-2">个人练习的 BKT / 错题本 / 历史只存在当前浏览器。换设备时可导出再导入。</p>
+      <p class="footnote mb-2">BKT / 错题本 / 历史存在当前浏览器，可导出再导入；对话与 AI 分析缓存也只在本地保存，可分别在对话输入栏和学情档案中清除。</p>
       <div class="flex flex-wrap gap-2">
         <button onclick="exportLocalData()" class="btn btn-ghost btn-sm">导出</button>
         <button onclick="triggerImportLocalData()" class="btn btn-ghost btn-sm">导入</button>

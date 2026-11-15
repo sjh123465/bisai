@@ -14,6 +14,7 @@ import {
   maskKey,
 } from '../core/llmSettings.js';
 import { exportProfile, importProfile, clearProfile } from '../core/localStore.js';
+import { clearLatestAnalysis } from '../core/analysisStore.js';
 import { escapeHtml } from '../core/render.js';
 
 let _providersLoaded = false;
@@ -209,9 +210,10 @@ function importLocalData(event) {
 }
 
 function clearLocalData() {
-  if (!confirm('确定清空当前浏览器中的个人学情（BKT / 错题本 / 历史）吗？此操作不可撤销。')) return;
+  if (!confirm('确定清空当前浏览器中的个人学情（BKT / 错题本 / 历史 / AI 分析缓存）吗？此操作不可撤销。')) return;
   clearProfile();
-  _msg('本地学情已清空。', true);
+  clearLatestAnalysis();
+  _msg('本地学情与 AI 分析缓存已清空。', true);
   window.refreshTodayStats?.();
   window.refreshPersonalRadar?.();
   window.refreshProgressCurve?.();
