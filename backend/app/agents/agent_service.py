@@ -4,6 +4,7 @@
 2. 根据意图调用对应工具（GraphRAG / 沙箱 / AST / BKT）
 3. 工具结果 + 检索上下文 → 苏格拉底式 Prompt → 流式输出
 """
+import asyncio
 import json
 from typing import AsyncGenerator, Optional
 from app.core.llm_config import LLMConfig
@@ -222,7 +223,7 @@ class AgentService:
         try:
             if tool_name == "search_knowledge":
                 query = args.get("query", "")
-                retrieved = await self.graphrag.retrieve(query)
+                retrieved = await self.graphrag.retrieve(query, config=self.llm.config)
                 return self.graphrag.format_for_llm(retrieved, max_chunks=5)
 
             elif tool_name == "analyze_code_ast":
@@ -363,7 +364,16 @@ class AgentService:
             return f"未知工具: {tool_name}"
         except Exception as e:
             logger.error(f"工具 {tool_name} 执行异常: {e}")
-            return f"[工具执行出错: {str(e)}]"
+            return f"[TOOL_FAILED:{tool_name}:{str(e)[:100]}]"
+
+    async def _run_tool_with_retry(self, tool_name: str, args: dict, profile: Optional[dict] = None) -> str:
+        """工具执行 + 一次重试。重试仍失败返回 [TOOL_FAILED] 标记，供主循环降级。"""
+        result = await self._run_tool(tool_name, args, profile)
+        if result.startswith("[TOOL_FAILED:"):
+            logger.warning(f"工具 {tool_name} 首次失败，重试一次...")
+            await asyncio.sleep(0.3)
+            result = await self._run_tool(tool_name, args, profile)
+        return result
 
     # ---------- 流式对话（自动调度工具） ----------
     async def chat_stream(
@@ -444,6 +454,7 @@ class AgentService:
 
             # 有工具调用 → 逐个执行后将结果喂回，进入下一轮决策
             messages.append(message)
+            tool_failed_names = []
             for tc in tool_calls:
                 func_name = tc["function"]["name"]
                 try:
@@ -451,15 +462,31 @@ class AgentService:
                 except json.JSONDecodeError:
                     func_args = {}
                 yield _status("tool", f"正在调用工具 {func_name}")
-                tool_result = await self._run_tool(func_name, func_args, profile)
+                tool_result = await self._run_tool_with_retry(func_name, func_args, profile)
+                # 检测工具失败标记：重试后仍失败 → 记录，后续降级为直接回答
+                if tool_result.startswith("[TOOL_FAILED:"):
+                    tool_failed_names.append(func_name)
+                    logger.warning(f"工具 {func_name} 重试后仍失败，降级为直接回答")
+                    tool_result = f"[工具 {func_name} 暂时不可用，将基于已有知识直接回答]"
                 messages.append({
                     "role": "tool",
                     "tool_call_id": tc["id"],
                     "content": tool_result,
                 })
                 yield _status("tool_done", f"工具 {func_name} 执行完成")
-                # 给前端发一个 tool_result 标记
                 yield f"\n> *📎 工具 `{func_name}` 返回结果已获取*\n\n"
+
+            # 若有工具失败 → 不再进入下一轮工具调度，直接基于已有信息回答
+            if tool_failed_names:
+                failed_str = "、".join(tool_failed_names)
+                messages.append({
+                    "role": "user",
+                    "content": f"（工具 {failed_str} 暂时不可用，请直接基于你已有的知识作答，"
+                               f"不要再请求任何工具。若信息不足，请坦诚说明并给出你能确定的部分。）",
+                })
+                async for chunk in self._stream_answer(messages, prefix=f"⚠️ 工具 {failed_str} 暂时不可用，以下为直接推理结果：\n\n"):
+                    yield chunk
+                return
 
         # ---- 轮次用尽仍有工具请求 → 强制收口，基于已有信息作答 ----
         logger.info(f"工具调度达到上限 {MAX_TOOL_ROUNDS} 轮，强制收口")
@@ -470,9 +497,11 @@ class AgentService:
         async for chunk in self._stream_answer(messages):
             yield chunk
 
-    async def _stream_answer(self, messages: list[dict]) -> AsyncGenerator[str, None]:
-        """把最终答案以流式方式吐出（带中断兜底）"""
+    async def _stream_answer(self, messages: list[dict], prefix: str = "") -> AsyncGenerator[str, None]:
+        """把最终答案以流式方式吐出（带中断兜底）；prefix 为降级提示等前置文本"""
         yield _status("answering", "正在整合检索结果，生成引导回答")
+        if prefix:
+            yield prefix
         try:
             async for chunk in self.llm.chat_stream(messages, temperature=0.6):
                 yield chunk
@@ -484,7 +513,7 @@ class AgentService:
 
     async def quick_answer(self, query: str) -> str:
         """快速问答：先走 GraphRAG，再喂 LLM 组织语言"""
-        retrieved = await self.graphrag.retrieve(query)
+        retrieved = await self.graphrag.retrieve(query, config=self.llm.config)
         ctx = self.graphrag.format_for_llm(retrieved)
         if not retrieved["graph_nodes"] and not retrieved["vector_chunks"]:
             return "抱歉，我在知识图谱和教材中都没找到相关内容。请尝试换个关键词，或者告诉我你具体在学习哪门课？"

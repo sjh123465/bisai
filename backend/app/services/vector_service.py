@@ -1,10 +1,14 @@
-"""向量检索服务 — ChromaDB + 固定 384 维本地哈希 Embedding"""
+"""向量检索服务 — ChromaDB + bge-small 本地 Embedding（384 维）
+
+ChromaDB 固定用 bge-small 384 维向量，保证维度稳定、无需 Key。
+Reranker 阶段的 embedding-3 增强在 graphrag_service 中处理。
+"""
 import os
 import chromadb
 from typing import Optional
 from app.core.config import get_settings
 from app.core.logger import get_logger
-from app.services.llm_service import local_hash_embed
+from app.services.embedding_service import embed_local
 
 logger = get_logger("vector")
 
@@ -20,51 +24,34 @@ class VectorStore:
             name=COLLECTION_NAME,
             metadata={"hnsw:space": "cosine"},
         )
-        logger.info(f"📚 ChromaDB 集合加载: {self.collection.count()} 条文档（本地哈希向量 384 维）")
+        logger.info(f"📚 ChromaDB 集合加载: {self.collection.count()} 条文档（bge-small 512 维）")
 
-    async def add_document(
-        self,
-        doc_id: str,
-        text: str,
-        metadata: Optional[dict] = None,
-    ):
-        """添加单条文档（使用本地哈希 embedding）"""
-        embeddings = local_hash_embed([text])
+    async def add_document(self, doc_id: str, text: str, metadata: Optional[dict] = None):
+        embeddings = embed_local([text])
         meta = metadata or {}
         meta["chunk_id"] = doc_id
         self.collection.add(
-            ids=[doc_id],
-            documents=[text],
-            metadatas=[meta],
-            embeddings=embeddings,
+            ids=[doc_id], documents=[text], metadatas=[meta], embeddings=embeddings,
         )
 
-    async def add_documents(
-        self,
-        docs: list[dict],  # [{"id": str, "text": str, "metadata": dict}]
-    ):
-        """批量添加文档"""
+    async def add_documents(self, docs: list[dict]):
         if not docs:
             return
         texts = [d["text"] for d in docs]
-        embeddings = local_hash_embed(texts)
+        embeddings = embed_local(texts)
         ids = [d["id"] for d in docs]
         metadatas = [d.get("metadata", {}) for d in docs]
         for m in metadatas:
             m.setdefault("chunk_id", "")
         self.collection.add(
-            ids=ids,
-            documents=texts,
-            metadatas=metadatas,
-            embeddings=embeddings,
+            ids=ids, documents=texts, metadatas=metadatas, embeddings=embeddings,
         )
-        logger.info(f"📥 批量添加 {len(docs)} 条文档")
+        logger.info(f"📥 批量添加 {len(docs)} 条文档（bge-small）")
 
     async def query(self, query_text: str, top_k: int = 5) -> list[dict]:
-        """向量检索，返回 [{"id", "text", "metadata", "distance"}]"""
         if self.collection.count() == 0:
             return []
-        embeddings = local_hash_embed([query_text])
+        embeddings = embed_local([query_text])
         try:
             results = self.collection.query(
                 query_embeddings=embeddings,
@@ -72,11 +59,8 @@ class VectorStore:
                 include=["documents", "metadatas", "distances"],
             )
         except Exception as e:
-            # 旧向量库可能来自不同 embedding 维度；查询失败时降级为空结果，
-            # 不让整个 GraphRAG / 对话链路崩溃。
             logger.warning(f"向量检索失败（可能需要删除 data/chroma 重建）: {e}")
             return []
-        results = results
         out = []
         ids = results.get("ids", [[]])[0]
         docs = results.get("documents", [[]])[0]
@@ -94,8 +78,7 @@ class VectorStore:
     def clear(self):
         self.client.delete_collection(COLLECTION_NAME)
         self.collection = self.client.get_or_create_collection(
-            name=COLLECTION_NAME,
-            metadata={"hnsw:space": "cosine"},
+            name=COLLECTION_NAME, metadata={"hnsw:space": "cosine"},
         )
         logger.info("🗑️ 向量库已清空")
 

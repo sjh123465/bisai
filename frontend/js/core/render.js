@@ -201,7 +201,38 @@ import { API } from './env.js';
     } else {
       bubble.classList.remove('typing-cursor');
       bubble.innerHTML = renderContent(content);
+      // 仅 AI 消息在流式结束后追加渐进式操作按钮（定义/深入/看代码/出题）
+      if (wrap.classList.contains('assistant') && !wrap.querySelector('.progressive-actions')) {
+        const originalQuery = _extractUserQuery(wrap);
+        bubble.insertAdjacentHTML('afterend', renderProgressiveActions(originalQuery));
+      }
     }
+  }
+
+  /** 从当前消息向上回溯，提取用户最后一条提问文本，用于渐进式追问 */
+  function _extractUserQuery(wrap) {
+    let prev = wrap.previousElementSibling;
+    while (prev) {
+      if (prev.classList.contains('user')) {
+        return prev.querySelector('.prose-cm')?.textContent?.trim() || '';
+      }
+      prev = prev.previousElementSibling;
+    }
+    return '';
+  }
+
+  /** 渲染渐进式操作按钮：深入了解 / 看代码 / 出题考考我 */
+  function renderProgressiveActions(topic) {
+    return `
+      <div class="progressive-actions flex flex-wrap gap-2 mt-3">
+        <button class="px-3 py-1.5 text-sm rounded-lg border border-cyan-500/40 bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 transition"
+          onclick="sendQuick('请深入讲解「${topic}」的核心原理和关键细节')">📖 深入了解</button>
+        <button class="px-3 py-1.5 text-sm rounded-lg border border-emerald-500/40 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 transition"
+          onclick="sendQuick('给我一个「${topic}」的 Python 代码示例，并逐行解释')">💻 看代码</button>
+        <button class="px-3 py-1.5 text-sm rounded-lg border border-amber-500/40 bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 transition"
+          onclick="sendQuick('出几道关于「${topic}」的练习题考我')">✏️ 出题考考我</button>
+      </div>
+    `;
   }
 
 // 导出 + 供 HTML 内联 onclick 使用
