@@ -268,8 +268,12 @@ class AgentService:
         if not tool_calls:
             # 无工具调用 → 直接流式输出
             messages.append(message)  # assistant 消息
-            async for chunk in self.llm.chat_stream(messages, temperature=0.6):
-                yield chunk
+            try:
+                async for chunk in self.llm.chat_stream(messages, temperature=0.6):
+                    yield chunk
+            except Exception as e:
+                logger.error(f"流式回答中断: {e}")
+                yield f"\n\n⚠️ 回答中断：{e}\n\n请稍后重试；若持续失败，请检查 `.env` 中的 LLM_API_KEY 与网络连通性。"
             return
 
         # ---- 有工具调用 → 执行工具，然后流式输出最终回答 ----
@@ -294,8 +298,12 @@ class AgentService:
             yield f"\n> *📎 工具 `{func_name}` 返回结果已获取*\n\n"
 
         # 工具结果喂回 → 第二次 LLM 调用 → 流式输出最终引导
-        async for chunk in self.llm.chat_stream(messages, temperature=0.6):
-            yield chunk
+        try:
+            async for chunk in self.llm.chat_stream(messages, temperature=0.6):
+                yield chunk
+        except Exception as e:
+            logger.error(f"流式回答中断（工具调用后）: {e}")
+            yield f"\n\n⚠️ 回答中断：{e}\n\n请稍后重试；若持续失败，请检查 `.env` 中的 LLM_API_KEY 与网络连通性。"
 
     # ---------- 单轮同步对话（不带工具调度，快速响应） ----------
     async def quick_answer(self, query: str) -> str:

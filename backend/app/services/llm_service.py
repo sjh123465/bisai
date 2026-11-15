@@ -66,7 +66,10 @@ class LLMService:
         if tools:
             payload["tools"] = tools
 
-        async with httpx.AsyncClient(timeout=httpx.Timeout(120.0)) as client:
+        # 收紧超时：连接 10s、单次读取 60s（SSE 每个 chunk 间隔通常很短）
+        # 避免模型卡住时浏览器长时间挂起后抛 net::ERR_ABORTED
+        timeout = httpx.Timeout(connect=10.0, read=60.0, write=10.0, pool=10.0)
+        async with httpx.AsyncClient(timeout=timeout) as client:
             async with client.stream("POST", url, headers=headers, json=payload) as resp:
                 if resp.status_code != 200:
                     err = await resp.aread()
