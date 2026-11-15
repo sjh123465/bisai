@@ -65,6 +65,18 @@ if os.path.isdir(frontend_dir):
     app.mount("/static", StaticFiles(directory=frontend_dir), name="frontend")
 
 
+@app.middleware("http")
+async def no_cache_static(request, call_next):
+    """静态资源走协商缓存：改了 js/css 立刻生效，未改动时仍返回 304
+
+    避免浏览器缓存旧版 ES Module 导致「改了代码但页面还是旧行为 / 报函数未定义」。
+    """
+    resp = await call_next(request)
+    if request.url.path.startswith("/static"):
+        resp.headers["Cache-Control"] = "no-cache"
+    return resp
+
+
 @app.get("/")
 async def root():
     return {
