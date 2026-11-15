@@ -12,6 +12,7 @@ from app.services.graphrag_service import get_graphrag
 from app.services.sandbox_service import execute_python
 from app.services.ast_service import analyze_code, features_to_text
 from app.services.graph_service import get_graph
+from app.services.exam_service import get_exam
 from app.core.logger import get_logger
 
 logger = get_logger("agent")
@@ -128,6 +129,31 @@ TOOLS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "generate_practice_questions",
+            "description": "当用户要求出题练习、生成题目、来几道题考考我、按知识点出题时调用。可指定难度、题型、知识点。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "concepts": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "要出题的知识点列表（名称或 ID 均可）。不填则从知识图谱中自动抽取。",
+                    },
+                    "count": {"type": "integer", "description": "题目数量，默认 3，范围 1~10"},
+                    "difficulty": {"type": "string", "enum": ["easy", "medium", "hard"], "description": "难度，默认 medium"},
+                    "qtypes": {
+                        "type": "array",
+                        "items": {"type": "string", "enum": ["choice", "judge", "code"]},
+                        "description": "题型列表：choice=选择、judge=判断、code=编程。不填则自动搭配。",
+                    },
+                },
+                "required": [],
+            },
+        },
+    },
 ]
 
 
@@ -149,7 +175,8 @@ SYSTEM_PROMPT = """你是 CodeMentor，一个懂代码、知图谱、能引导�
 1. **代码调试**：先让工具跑代码看报错 → AST 分析代码结构 → 找到潜在问题 → 引导学生思考；学生明确要看答案时，再给出关键修复步骤
 2. **理论问答**：先查知识图谱（上下游关联）→ 再查向量文档 → 用自己的话组织，配合代码示例或图表说明
 3. **学情推荐**：结合学生历史数据，解释“为什么推荐”的理由
-4. **语言风格**：合作、克制、具体，可以提问引导，但不要用一连串反问代替回答；不做道德评判，不输出攻击性或对抗性措辞
+4. **出题练习**：学生要求出题、练习、考考我时，调用出题工具生成选择/判断/编程题；展示题目后引导学生逐题作答，不要直接公布答案
+5. **语言风格**：合作、克制、具体，可以提问引导，但不要用一连串反问代替回答；不做道德评判，不输出攻击性或对抗性措辞
 
 ## 事实与边界（最高优先级）
 - 优先依据知识图谱检索结果与向量文档检索结果，不引入未经验证的具体事实、引用或运行结果
@@ -170,6 +197,7 @@ class AgentService:
     def __init__(self, config: LLMConfig):
         self.llm = LLMService(config)
         self.graphrag = get_graphrag()
+        self.exam = get_exam(config)
 
     # ---------- 多轮对话压缩 ----------
     async def _summarize_history(self, history: list[dict]) -> str:
@@ -282,6 +310,55 @@ class AgentService:
                     + ("\n".join(path_lines) if path_lines else "暂无薄弱节点")
                     + topic_lines
                 )
+
+            elif tool_name == "generate_practice_questions":
+                count = int(args.get("count", 3))
+                count = max(1, min(10, count))
+                difficulty = args.get("difficulty", "medium")
+                difficulty = difficulty if difficulty in ("easy", "medium", "hard") else "medium"
+                qtypes = args.get("qtypes")
+                concepts = args.get("concepts")
+
+                # 如果用户给了知识点名称，尝试从知识图谱匹配成 concept_id
+                if concepts:
+                    graph = get_graph()
+                    resolved = []
+                    for c in concepts:
+                        matches = graph.search_nodes(c, top_k=1)
+                        if matches:
+                            resolved.append(matches[0]["id"])
+                        else:
+                            resolved.append(c)
+                    concepts = resolved
+
+                paper = await self.exam.generate_paper(
+                    concepts=concepts,
+                    count=count,
+                    qtypes=qtypes,
+                    difficulty=difficulty,
+                )
+
+                lines = [
+                    f"📄 出题结果：成功生成 {paper['generated']}/{paper['total']} 题（难度 {difficulty}）",
+                ]
+                for i, q in enumerate(paper.get("questions", []), 1):
+                    qtype = {"choice": "选择题", "judge": "判断题", "code": "编程题"}.get(
+                        q.get("type", ""), q.get("type", "")
+                    )
+                    question_text = q.get("question", q.get("prompt", ""))
+                    if len(question_text) > 120:
+                        question_text = question_text[:120] + "..."
+                    lines.append(f"\n{i}. 【{qtype}】{question_text}")
+                    if q.get("type") == "choice" and q.get("options"):
+                        for opt in q["options"]:
+                            lines.append(f"   {opt}")
+                    elif q.get("type") == "code":
+                        func = q.get("function_name", "solve")
+                        lines.append(f"   函数名: {func}")
+                        if q.get("hint"):
+                            lines.append(f"   提示: {q['hint']}")
+
+                return "\n".join(lines)
 
             return f"未知工具: {tool_name}"
         except Exception as e:

@@ -29,7 +29,7 @@
 
 ## 核心能力
 
-- **Agent 多轮工具调度**：`search_knowledge` / `analyze_code_ast` / `execute_code` / `get_learning_path`，最多 3 轮规划 → 调工具 → 再规划，SSE 实时展示思考阶段。
+- **Agent 多轮工具调度**：`search_knowledge`（知识问答）/ `analyze_code_ast`（代码分析）/ `execute_code`（沙箱运行）/ `get_learning_path`（学情推荐）/ `generate_practice_questions`（出题练习），最多 3 轮规划 → 调工具 → 再规划，SSE 实时展示思考阶段。
 - **GraphRAG**：62 节点 / 69 条有效关系 + ChromaDB 本地哈希向量检索；图谱提供结构关系，向量提供教材片段。
 - **代码分析**：Python AST 检测嵌套循环、递归、死循环、复杂度启发式；pycodestyle 风格检查。
 - **安全执行**：subprocess 沙箱 + 危险模块黑名单 + 超时；可选 Docker 模式（当前镜像未内置 docker CLI，默认 subprocess）。
@@ -172,6 +172,7 @@ docker compose -f docker/docker-compose.yml up -d --build
 
 - 理论问答：GraphRAG 检索 → Agent 组织讲解
 - 代码调试：沙箱运行 + AST 分析 + 苏格拉底式引导
+- **出题练习**：Agent 调 `generate_practice_questions` 工具，按知识点/难度/题型生成选择/判断/编程题，引导学生逐题作答
 - 学习路径：读取请求中携带的**本地学情摘要**（不落服务端），结合图谱前置关系
 - 截图答疑：需智谱 GLM
 - 语音提问：Chrome / Edge Web Speech API
