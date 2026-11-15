@@ -21,7 +21,7 @@
 |---|---|
 | 截图占位 | 截图占位 |
 
-> 📸 截图：前端单文件 SPA，所有依赖 CDN 引入，零构建。
+> 📸 截图：前端零构建 ES Modules 应用，依赖全部本地化（`frontend/vendor/`），离线可运行。
 </details>
 
 ---
@@ -43,7 +43,7 @@
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│  💻  前端（单文件 SPA · HTML + TailwindCSS）                   │
+│  💻  前端（零构建 ES Modules · HTML + TailwindCSS）              │
 │                                                             │
 │  📊 ECharts 学情图  ·  🗺️ SVG 力导向图谱  ·  💬 SSE 流式对话  │
 │  🧩 Marked.js + Highlight.js 代码块（语言标签 + 一键复制）      │
@@ -520,7 +520,19 @@ CodeMentor/
 │   └── requirements.txt          # 📦 依赖（14 项）
 │
 └── 🎨 frontend/
-    └── index.html                # 🖼️ 单页前端（约 2200 行，CDN 引入所有依赖，零构建）
+    ├── index.html                # 🖼️ 页面骨架 + 样式 + 内联结构（约 600 行）
+    ├── js/
+    │   ├── app.js                # 🚀 主入口：认证 / Tab / SSE 对话 / 代码面板 / 多模态
+    │   ├── core/
+    │   │   ├── env.js            # 🌐 API 常量 + 当前学生 ID
+    │   │   ├── render.js         # 🧩 Markdown 渲染 / XSS 消毒 / 代码高亮 / 消息气泡
+    │   │   └── status.js         # 🧠 AI 思考阶段指示器
+    │   └── features/
+    │       ├── graph.js          # 🗺️ 力导向图谱渲染 + 节点检索定位
+    │       ├── exam.js           # 📝 出题 / 试卷 / 双轨批改 / 错题重练
+    │       ├── analytics.js      # 📊 学情仪表盘 / 雷达图 / 热力图 / AI 报告
+    │       └── voice.js          # 🎤 语音提问（Web Speech API）
+    └── vendor/                   # 📦 本地依赖（Tailwind / Marked / DOMPurify / Highlight.js / ECharts）
 ```
 
 ---
@@ -655,7 +667,7 @@ docker compose -f docker/docker-compose.yml up -d --build
 
 ## 🎨 前端打磨亮点
 
-前端为单文件 SPA（`frontend/index.html`，约 2200 行），所有依赖通过 CDN 引入（TailwindCSS + Marked.js + Highlight.js + ECharts + DOMPurify），**零构建、零 node_modules**。
+前端为 **零构建 ES Modules 应用**：`frontend/index.html` 只保留结构与样式，逻辑拆到 `js/` 下按职责分层的 7 个模块（`core/` 基础设施 + `features/` 业务模块 + `app.js` 入口），模块间用 `import/export` 显式依赖、`window` 只用于承接 HTML 内联事件。所有第三方依赖（TailwindCSS + Marked.js + Highlight.js + ECharts + DOMPurify）已本地化到 `frontend/vendor/`，**`<link rel="preload">` 预加载 + CDN 自动兜底**，断网也能完整运行。
 
 ### 已实现的 40+ 项交互打磨
 
@@ -674,6 +686,7 @@ docker compose -f docker/docker-compose.yml up -d --build
 | 11 | 📊 **学情学生行内联雷达图展开**（点击 ▶ → accordion 展开小雷达图 + 薄弱知识点彩色进度条 + 再点收起） |
 | 12 | 🗺️ **图谱节点鲜艳色升级 + 同类型群体高亮**（6 类节点换更饱和的亮紫/亮玫紫/亮翡翠/亮琥珀/亮玫红/亮天蓝；hover 同族节点同步亮+辉光、异族节点灰化 opacity=0.35） |
 | 13 | 🧠 **AI 思考阶段指示器**（`status` 事件驱动：理解问题 → 调用工具 → 生成回答 实时步骤条 + 旋转动画，回答结束自动折叠为「已完成 N 步推理 · 工具调用 N 次」可展开摘要） · 🔁 **Agent 多轮工具调度**（单次提问最多 3 轮规划-调用循环，轮次用尽自动收口） · 🔗 **真实语义 Embedding**（智谱 `embedding-3`，2048 维，替代原 384 维字符哈希降级方案） |
+| 14 | 📦 **依赖全本地化**（8 个文件落到 `frontend/vendor/`，preload 预加载 + CDN 失败兜底，断网可用） · 🎤 **语音提问**（Web Speech API 中文识别，实时 interim 上屏 + 权限/设备异常提示） · 📱 **响应式适配**（≤1024px 顶栏换行、隐藏状态徽章、对话区高度自适应；≤768px 收紧留白与字号） · 🧩 **ES Modules 重构**（7 个模块 + JSDoc 类型注释，`window` 仅承接内联事件） |
 
 **右侧边栏 × Tab 显示矩阵**：
 
@@ -746,8 +759,8 @@ A: 完全可以。后端 `app/core/seed_knowledge.py` 用 Python 字典定义节
 <details><summary><b>Q: 前端为什么不拆成 Vue/React + Vite？</b></summary>
 
 A: 两个考虑：
-1. **竞赛便携性**：单文件 HTML 可以直接用浏览器打开或挂在任何静态服务器上（甚至 `python -m http.server`），不用 `npm install`、不用构建、不用担心 node_modules 版本
-2. **复杂度可控**：前端只做数据展示和用户交互，业务逻辑全在后端。3 人小团队 5 天冲刺期，单文件维护成本最低
+1. **竞赛便携性**：整个前端零构建，`frontend/` 直接挂在任何静态服务器上即可运行（依赖已本地化，不依赖外网 CDN）
+2. **复杂度可控**：前端只做数据展示和用户交互，业务逻辑全在后端。3 人小团队 5 天冲刺期，按职责拆成 7 个 ES Module 已足够清晰，引入框架反而增加构建链和调试成本
 
 如果后续要做产品化，推荐拆成 Vue 3 + Vite + Pinia。
 </details>
