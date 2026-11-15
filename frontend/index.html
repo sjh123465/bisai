@@ -10,6 +10,8 @@
 
 <!-- Markdown 渲染 + 代码高亮 -->
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<!-- XSS 消毒：marked v5+ 已移除内置 sanitize，需外部消毒 -->
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3.2.4/dist/purify.min.js"></script>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/github-dark.min.css">
 <script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"></script>
 <script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/languages/python.min.js"></script>
@@ -506,13 +508,9 @@
 
 <!-- ============ JS ============ -->
 <script>
+  // marked v5+ 已移除 highlight / sanitize 选项：
+  // 语法高亮改在 enhanceCodeBlocks 里手动调 hljs，XSS 消毒交给 DOMPurify
   marked.setOptions({
-    highlight: function(code, lang) {
-      if (lang && hljs.getLanguage(lang)) {
-        try { return hljs.highlight(code, {language: lang}).value; } catch(_) {}
-      }
-      return hljs.highlightAuto(code).value;
-    },
     breaks: true,
     gfm: true,
   });
@@ -752,28 +750,51 @@
     html:'HTML', css:'CSS', json:'JSON', yaml:'YAML', md:'Markdown',
   };
 
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+
+  // 把任意文本安全地嵌进 onclick="fn('...')"：先做 JS 字面量转义，再做 HTML 属性转义
+  function jsStr(s) {
+    const lit = "'" + String(s)
+      .replace(/\\/g, '\\\\')
+      .replace(/'/g, "\\'")
+      .replace(/[\r\n]+/g, ' ') + "'";
+    return lit.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+
+  // Markdown → 消毒后的 HTML（LLM 输出一律走这里，避免 XSS）
+  function mdSafe(text) {
+    return DOMPurify.sanitize(marked.parse(text || ''));
+  }
+
   function renderContent(content) {
     content = content || '';
     // 1. 移除 thinking 注释
     content = content.replace(/<!--thinking:[\s\S]*?-->/g, '');
-    // 2. 提取工具调用行，转成徽章
+    // 2. 提取工具调用行，转成占位符（消毒后再还原为徽章）
     const tools = [];
     content = content.replace(/>\s*\*📎\s*工具\s*`([^`]+)`[^*\n]*\*/g, (m, t) => { tools.push(t); return `__TOOL${tools.length-1}__`; });
-    // 额外：隐藏 agent 内部暴露的 TOOL N 编号标记（直接移除，避免用户困惑）
+    // 额外：隐藏 agent 内部暴露的 TOOL N 编号标记
     content = content.replace(/\bTOOL\d+\b/g, '');
     // 3. Markdown 渲染
     let html = marked.parse(content);
-    // 4. [text](graph:id) → 可点击图谱节点卡片
+    // 4. [text](graph:id) → 先转成带 data 属性的 span（graph: 协议会被消毒器移除 href，故提前转换）
     html = html.replace(/<a href="graph:([^"]+)">([^<]+)<\/a>/g,
-      (m, id, text) => `<span class="graph-chip" onclick="askAboutGraph('${id}')" title="点击就该知识点提问">🏷️ ${text}</span>`);
-    // 5. 插入工具徽章
+      (m, id, text) => `<span class="graph-chip" data-graph-id="${id}">🏷️ ${text}</span>`);
+    // 5. XSS 消毒（marked v5+ 默认不消毒）
+    html = DOMPurify.sanitize(html, { ADD_ATTR: ['data-graph-id'] });
+    // 6. 消毒后还原图谱节点卡片（onclick 由本地生成，可信）
+    html = html.replace(/<span class="graph-chip" data-graph-id="([^"]+)">/g,
+      (m, id) => `<span class="graph-chip" onclick="askAboutGraph('${id}')" title="点击就该知识点提问">`);
+    // 7. 插入工具徽章（工具名来自 LLM，需转义）
     tools.forEach((t, i) => {
       html = html.replace(`__TOOL${i}__`,
-        `<span class="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">🔧 工具: ${t}</span><br>`);
+        `<span class="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">🔧 工具: ${escapeHtml(t)}</span><br>`);
     });
-    // 6. 代码块增强：加语言标签 + 复制按钮
+    // 8. 代码块增强：语法高亮 + 语言标签 + 复制按钮
     html = enhanceCodeBlocks(html);
-    // 7. 最终兜底：移除 HTML 中裸的 TOOL 编号标记（LLM 有时候会自己在 ** 里写）
+    // 9. 最终兜底：移除裸的 TOOL 编号标记
     html = html.replace(/<strong>\s*TOOL\d+\s*<\/strong>/gi, '');
     html = html.replace(/\bTOOL\d+\b/gi, '');
     // 清理多余空行
@@ -794,6 +815,16 @@
           lang = LANG_MAP[cls[1].toLowerCase()] || cls[1].toUpperCase();
           pre.classList.add('code-block');
           pre.setAttribute('data-lang', lang);
+        }
+        // 语法高亮（marked v5+ 已移除 highlight 选项，这里显式调用 hljs）
+        const raw = code.textContent;
+        if (raw.trim()) {
+          try {
+            code.innerHTML = (cls && hljs.getLanguage(cls[1]))
+              ? hljs.highlight(raw, { language: cls[1] }).value
+              : hljs.highlightAuto(raw).value;
+            code.classList.add('hljs');
+          } catch (_) { /* 高亮失败则保留原文 */ }
         }
       }
       // 复制按钮
@@ -831,11 +862,13 @@
         ${role === 'user' ? '你' : 'C'}
       </div>
       <div class="flex-1 max-w-[85%] ${role === 'user' ? 'text-right' : ''}">
-        <div class="prose-cm inline-block text-left p-3 rounded-xl ${role === 'user' ? 'bg-indigo-600/90' : 'bg-slate-700/70'} ${isStreaming ? 'typing-cursor' : ''}" style="white-space:pre-wrap">${content || ''}</div>
+        <div class="prose-cm inline-block text-left p-3 rounded-xl ${role === 'user' ? 'bg-indigo-600/90' : 'bg-slate-700/70'} ${isStreaming ? 'typing-cursor' : ''}" style="white-space:pre-wrap"></div>
       </div>
       <span class="msg-meta">${role === 'user' ? '👤 你' : '🤖 CodeMentor'} · ${time} · <button onclick="copyMsg(this)" class="hover:text-indigo-300 transition">📋 复制</button></span>
     `;
     container.appendChild(wrap);
+    // 内容用 textContent 写入，避免用户输入被当作 HTML 解析
+    wrap.querySelector('.prose-cm').textContent = content || '';
     container.scrollTop = container.scrollHeight;
     return wrap;
   }
@@ -931,6 +964,8 @@
   }
 
   function sendQuick(msg) {
+    // 从图谱等其他 Tab 触发时，先切回对话 Tab，否则用户看不到回答
+    switchTab('chat');
     document.getElementById('user-input').value = msg;
     sendMessage();
   }
@@ -1663,7 +1698,7 @@
       const resp = await fetch(API + '/teacher/report');
       const data = await resp.json();
       const report = data.report || '⚠️ 报告生成失败，AI 未返回有效内容，请稍后重试。';
-      content.innerHTML = marked.parse(report);
+      content.innerHTML = mdSafe(report);
     } catch(e) { content.textContent = '❌ ' + e.message; }
   }
 
@@ -1741,10 +1776,7 @@
   // ---------- 右侧动态仪表盘 ----------
   async function refreshDashboard() {
     try {
-      const [g, bkt] = await Promise.all([
-        fetch('/api/knowledge/graph').then(r => r.json()).catch(() => null),
-        fetch('/api/bkt/mastery/123').then(r => r.json()).catch(() => null),
-      ]);
+      const g = await fetch('/api/knowledge/graph').then(r => r.json()).catch(() => null);
       if (g) {
         document.getElementById('stat-nodes').textContent = g.nodes?.length ?? '-';
         document.getElementById('stat-edges').textContent = g.edges?.length ?? '-';
@@ -1988,7 +2020,7 @@
     const typeMap = {choice:'选择题', judge:'判断题', code:'编程题'};
     document.getElementById('exam-type-badge').textContent = typeMap[q.type] || q.type;
     document.getElementById('exam-concept-badge').textContent = q.concept;
-    document.getElementById('exam-question-text').innerHTML = marked.parse(q.question || '（题目内容为空）');
+    document.getElementById('exam-question-text').innerHTML = mdSafe(q.question || '（题目内容为空）');
     document.getElementById('exam-hint').classList.add('hidden');
 
     const opts = document.getElementById('exam-options');
@@ -2116,12 +2148,12 @@
         <div class="text-sm text-slate-200 leading-relaxed prose-cm-result">${explanation || ''}</div>
         <div class="mt-3 flex gap-2">
           <button onclick="generateQuestion()" class="px-3 py-1.5 rounded-lg bg-${mainColor}-600 hover:bg-${mainColor}-500 text-white text-xs font-medium shadow transition">🔁 再来一道</button>
-          <button onclick="switchTab('chat'); sendQuick('${encodeURI(q.question||'')}')" class="px-3 py-1.5 rounded-lg bg-slate-700/60 hover:bg-slate-600 text-slate-300 text-xs transition">💬 问 AI 详解</button>
+          <button onclick="switchTab('chat'); sendQuick(${jsStr(q.question || '')})" class="px-3 py-1.5 rounded-lg bg-slate-700/60 hover:bg-slate-600 text-slate-300 text-xs transition">💬 问 AI 详解</button>
         </div>
       </div>`;
     // 解析加粗（**xxx** → <b>xxx</b>）
     r.querySelectorAll('.prose-cm-result').forEach(el => {
-      el.innerHTML = marked.parse(el.textContent);
+      el.innerHTML = mdSafe(el.textContent);
     });
   }
 
@@ -2153,7 +2185,7 @@
         ${review.encouragement ? `<div class="text-sm text-amber-200 italic pt-1 border-t border-slate-700/30">${review.encouragement}</div>` : ''}
         <div class="flex gap-2 pt-2 border-t border-slate-700/30">
           <button onclick="generateQuestion()" class="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-medium shadow transition">🔁 再来一道</button>
-          <button onclick="switchTab('chat'); sendQuick('${encodeURI('帮我批改代码: ' + code.slice(0,120))}')" class="px-3 py-1.5 rounded-lg bg-slate-700/60 hover:bg-slate-600 text-slate-300 text-xs transition">💬 问 AI 改进</button>
+          <button onclick="switchTab('chat'); sendQuick(${jsStr('帮我批改代码: ' + code.slice(0,120))})" class="px-3 py-1.5 rounded-lg bg-slate-700/60 hover:bg-slate-600 text-slate-300 text-xs transition">💬 问 AI 改进</button>
         </div>
       </div>`;
   }

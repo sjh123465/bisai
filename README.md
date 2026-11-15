@@ -33,9 +33,9 @@
 | 🧠 **Agent 工具调用** | LLM Function Calling | 不是纯文本套壳 —— AI 自主调度 4 类工具（知识检索 / AST 分析 / 沙箱执行 / 学情推荐），苏格拉底式引导 |
 | 🔗 **GraphRAG 双引擎** | NetworkX + ChromaDB | 单一向量搜索缺乏学科结构 —— 图谱做多跳推理，向量库做教材原文召回，混合回答 |
 | ⚙️ **AST + LLM 双轨批改** | Python `ast` 模块 | 大模型"猜答案"不准 —— AST 提取客观特征（嵌套循环/递归/死循环/复杂度），LLM 只负责解释 |
-| 🎯 **BKT 知识追踪** | 贝叶斯知识追踪 | 静态掌握度不反映真实水平 —— 每次答题后用贝叶斯规则更新知识点掌握概率 |
+| 🎯 **BKT 式知识追踪** | 简化版掌握度更新 | 静态掌握度不反映真实水平 —— 每次答题后按知识点更新掌握概率（初始 0.3，答对 +0.15，答错 -0.10，夹紧 [0.05, 0.98]） |
 | 🖼️ **多模态截图答疑** | Zhipu GLM-4V-Flash | 编程问题常带截图 —— 直接上传报错/代码截图，视觉模型理解后答疑 |
-| 📺 **SSE 流式全链路** | sse-starlette | 等待 20 秒才出答案体验差 —— Agent 调度 + 回答全部流式输出，Markdown + 代码高亮实时渲染 |
+| 📺 **SSE 流式全链路** | FastAPI StreamingResponse | 等待 20 秒才出答案体验差 —— Agent 调度 + 回答全部流式输出，Markdown + 代码高亮实时渲染 |
 
 ---
 
@@ -55,15 +55,15 @@
 │  ┌────────────────────────────────────────────────────┐     │
 │  │  🧭 Agent 调度器（Function Calling 路由）             │     │
 │  │    ├─ search_knowledge  →  GraphRAGService          │     │
-│  │    ├─ analyze_code     →  ASTService + SandboxSvc  │     │
-│  │    ├─ recommend_path   →  BKTService + GraphSvc    │     │
-│  │    └─ summarize_report →  LLMService               │     │
+│  │    ├─ analyze_code_ast  →  ASTService               │     │
+│  │    ├─ execute_code      →  SandboxService           │     │
+│  │    └─ get_learning_path →  BKTService + GraphSvc    │     │
 │  └────────────────────────────────────────────────────┘     │
 │                                                             │
 │  ┌─────────────────┐  ┌─────────────────┐  ┌────────────┐  │
 │  │ 🔗 GraphRAG     │  │ ⚙️ 代码解析      │  │ 🎯 BKT     │  │
-│  │ NetworkX +      │  │ Python AST +    │  │ 贝叶斯追踪  │  │
-│  │ ChromaDB (62节点)│  │ subprocess 沙箱 │  │ 知识掌握度  │  │
+│  │ NetworkX +      │  │ Python AST +    │  │ 简化版      │  │
+│  │ ChromaDB (62节点)│  │ subprocess 沙箱 │  │ 掌握度更新  │  │
 │  └─────────────────┘  └─────────────────┘  └────────────┘  │
 │                                                             │
 │  🛡️ L4 安全层：CORS → 滑动窗口限流 → 请求/错误率监控           │
@@ -81,10 +81,10 @@
 
 | 层级 | 技术 |
 |------|------|
-| **前端** | HTML5 + TailwindCSS (CDN) + Marked.js + Highlight.js + ECharts 5 + Vanilla JS |
+| **前端** | HTML5 + TailwindCSS (CDN) + Marked.js + Highlight.js + ECharts 5 + DOMPurify + Vanilla JS |
 | **后端** | FastAPI 0.115 + Uvicorn + Pydantic v2 |
 | **AI 模型** | DeepSeek Chat（主 LLM）· Zhipu GLM-4V-Flash（多模态） |
-| **Agent** | 自研 Function Calling 调度器（LangChain 可选） |
+| **Agent** | 自研 Function Calling 调度器（直接调用 OpenAI 兼容接口，未依赖 LangChain） |
 | **知识图谱** | NetworkX（内存图计算）+ ChromaDB（向量） |
 | **沙箱** | Python subprocess + 危险模块黑名单 + 超时强制终止（Docker 模式可选） |
 | **鉴权** | PBKDF2 密码哈希 + HMAC 签名 Token |
@@ -99,75 +99,77 @@ Agent 不只是"调用一个 API 然后套壳"。它会**自主决策**调度哪
 ### 工具 1：`search_knowledge` — GraphRAG 混合检索
 
 ```python
-# 输入
-{ "query": "红黑树删除操作", "top_k": 5 }
+# 输入（function calling 参数）
+{ "query": "红黑树删除操作" }
 
-# 输出（Agent 拿到后拼进下一轮 prompt）
+# 内部执行
+GraphRAGService.retrieve(query, vector_top_k=…) → 图谱命中 + 向量命中
+
+# 返回给 Agent 的内容
 {
   "graph_hits": [
     {"id": "rb_delete", "name": "红黑树删除", "category": "operation",
-     "prerequisites": ["rb_insert", "rotation"], "page_rank": 0.82}
+     "prerequisites": ["rb_insert", "rotation"]}
   ],
   "vector_hits": [
     {"chunk": "红黑树删除后的平衡恢复分 4 种情况...", "score": 0.78}
   ]
 }
 # 🔗 图谱返回"结构关系"，向量库返回"教材原文"
-#    Agent 综合后回答：先讲删除步骤 → 再讲 4 种旋转场景 → 再给代码
 ```
 
-### 工具 2：`analyze_code` — AST 静态分析
+### 工具 2：`analyze_code_ast` — AST 静态分析
 
 ```python
 # 输入
-{ "code": "def quicksort(arr): while True: arr = arr + [1]" }
+{ "code": "def quicksort(arr):\n    while True:\n        arr = arr + [1]" }
 
-# 输出
+# 输出（ASTFeatures 数据类字段）
 {
-  "has_infinite_loop": True,      # 检测到 while True 无退出
-  "loop_depth": 1,                # 嵌套循环深度
+  "loop_count": 1,
+  "max_loop_depth": 1,               # 最大嵌套循环深度
   "has_recursion": False,
-  "cyclomatic_complexity": 2,     # McCabe 复杂度
-  "issues": ["⚠️ while True 无 break", "建议：替换为 for 循环或加终止条件"],
-  "suggestions": "把 while True 改成 for i in range(len(arr))"
+  "possible_infinite_loop": True,    # while True 且循环变量未更新
+  "infinite_loop_hint": "⚠️ 检测到 while True 且循环变量未被修改，可能是死循环",
+  "estimated_complexity": "O(n)",    # 基于嵌套层数 + 递归的启发式估算
+  "complexity_reason": "单层循环，通常为线性复杂度"
 }
 # 🔗 纯 AST 提取，不调用 LLM，结果客观稳定
 ```
 
-### 工具 3：`sandbox_run` — 安全执行 + 测试
+### 工具 3：`execute_code` — 安全执行
 
 ```python
 # 输入
-{ "code": "...", "test_cases": [{"input": "[3,1,2]", "expects": "[1,2,3]"}], "timeout": 5 }
+{ "code": "print(sum([1,2,3]))" }
 
-# 输出
+# 输出（ExecuteResult 数据类字段）
 {
-  "passed": 3, "total": 3,
-  "runtime_ms": 12,
-  "blocked_modules": [],
-  "test_results": [
-    {"input": "[3,1,2]", "actual": "[1,2,3]", "pass": True}
-  ]
+  "success": True,
+  "output": "6\n",
+  "error": "",
+  "timed_out": False,
+  "execution_time": 0.08
 }
-# 🔗 默认 subprocess，黑名单拦截 os.system/subprocess/eval/exec/__import__
-#    Docker 模式下替换为容器隔离（compose 已预留）
+# 🔗 默认 subprocess，DANGEROUS_MODULES 黑名单拦截 22 个模块
+#    （os / subprocess / socket / ctypes / pickle / shutil / multiprocessing …）
+#    Docker 模式下替换为容器隔离（--network none + 资源限制）
 ```
 
-### 工具 4：`recommend_path` — BKT + 图谱联合推荐
+### 工具 4：`get_learning_path` — BKT + 图谱联合推荐
 
 ```python
 # 输入
-{ "student_id": "demo_student", "target": "动态规划" }
+{ "student_id": "demo_student", "topic": "动态规划" }
 
 # 输出
 {
   "prereqs": ["递归基础", "分治思想", "快速排序"],  # 图谱前置关系
   "weak_prereqs": ["递归基础"],                     # BKT 掌握度 < 0.6
-  "current_mastery": { "quick_sort": 0.35, "bfs": 0.78 },
   "suggested_path": [
-    {"step": 1, "concept": "递归基础", "expected_mastery": 0.35, "action": "先补这个"},
-    {"step": 2, "concept": "分治思想", "expected_mastery": 0.60, "action": "练 2 道快排变体"},
-    {"step": 3, "concept": "动态规划入门", "expected_mastery": 0.0, "action": "开始 DP"}
+    {"step": 1, "concept": "递归基础", "mastery": 0.35, "action": "先补这个"},
+    {"step": 2, "concept": "分治思想", "mastery": 0.60, "action": "练 2 道快排变体"},
+    {"step": 3, "concept": "动态规划入门", "mastery": 0.0, "action": "开始 DP"}
   ]
 }
 # 🔗 图谱决定"先学什么"，BKT 决定"谁需要补"
@@ -184,12 +186,12 @@ Agent 不只是"调用一个 API 然后套壳"。它会**自主决策**调度哪
   ├─ Step 1 调用 search_knowledge("快排超时原因")
   │         → 拿到 O(n²) 最坏情况、退化成链表的例子
   │
-  ├─ Step 2 调用 analyze_code(用户代码)
-  │         → has_infinite_loop=False, loop_depth=0
-  │         → 发现：pivot 选首尾，已有序列下退化成 O(n²)
+  ├─ Step 2 调用 analyze_code_ast(用户代码)
+  │         → max_loop_depth=0, has_recursion=True
+  │         → estimated_complexity 提示递归带来的高复杂度
   │
-  ├─ Step 3 调用 sandbox_run(用户代码 + 测试用例)
-  │         → passed 3/3 但 runtime 5200ms（n=10000）
+  ├─ Step 3 调用 execute_code(用户代码)
+  │         → success=True，但 execution_time 明显偏长
   │
   └─ Step 4 综合回答（苏格拉底式）：
            "你选的 pivot 是 arr[0] 对吧？
@@ -222,10 +224,9 @@ cd bisai/backend && .venv\Scripts\activate && pytest tests/ -v
 ```bash
 git clone https://github.com/sjh123465/bisai.git
 cd bisai
-cd docker
-# 编辑 .env 填入 LLM_API_KEY，然后：
-docker-compose up -d backend
-# 前端已通过后端 /static 路径自动挂载
+# 编辑 backend/.env 填入 LLM_API_KEY，然后：
+docker compose -f docker/docker-compose.yml up -d --build
+# 前端已打包进镜像（/app/frontend），无需额外挂载
 # 访问 http://localhost:8080/static/index.html
 ```
 
@@ -327,7 +328,7 @@ python -m uvicorn app.main:app --host 0.0.0.0 --port 8080
 
 | 组件 | 数据源 | 说明 |
 |------|--------|------|
-| 📈 掌握度雷达图 | BKT | 学生各知识点掌握概率（贝叶斯更新） |
+| 📈 掌握度雷达图 | BKT | 学生各知识点掌握概率（简化版增量更新） |
 | 🔥 薄弱热力图 | 班级聚合 | 全班各知识点薄弱率（< 60% 为薄弱） |
 | 📕 高频错题榜 | 错题本 | 按知识点聚合全班答错次数排名 |
 | 👥 学生学情列表 | BKT + 错题本 | 按薄弱程度升序，点击查看详情雷达 |
@@ -351,68 +352,86 @@ python -m uvicorn app.main:app --host 0.0.0.0 --port 8080
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | POST | `/api/auth/login` | 登录，返回 `token` |
-| POST | `/api/auth/register` | 注册（学生/教师角色） |
+| POST | `/api/auth/register` | 注册（student / teacher 角色） |
+| GET | `/api/auth/me` 🔐 | 当前登录用户信息 |
 
 ### 💬 Agent 对话（SSE 流式）
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| POST | `/api/chat/stream` | Agent 流式对话，返回 SSE 事件流（chunk / tool_call / done） |
+| POST | `/api/chat/stream` | Agent 流式对话，SSE 事件类型：`start` / `chunk` / `end` |
+| POST | `/api/chat/quick` | 非流式快速问答（一次性返回完整答案） |
 
 ### 🗺️ 知识图谱
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | GET | `/api/knowledge/graph` | 获取完整图谱（节点 + 边 + 统计） |
-| GET | `/api/knowledge/search?query=&top_k=` | 关键词搜索节点 |
-| GET | `/api/knowledge/node/{id}` | 节点详情 + 前置/后继 |
+| GET | `/api/knowledge/stats` | 图谱统计（节点数 / 边数 / 分类分布） |
+| GET | `/api/knowledge/nodes` | 节点列表（可按分类过滤） |
+| GET | `/api/knowledge/search?query=` | 关键词搜索节点 |
+| GET | `/api/knowledge/node/{node_id}` | 节点详情 + 前置 / 后继 |
+| POST | `/api/knowledge/nodes` | 新增节点 |
+| POST | `/api/knowledge/edges` | 新增边 |
+
+### ⚙️ 代码分析
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | `/api/code/analyze` | AST 静态分析（死循环 / 嵌套 / 递归 / 复杂度） |
+| POST | `/api/code/execute` | 沙箱执行 Python 代码 |
+| POST | `/api/code/test` | 沙箱执行 + 测试用例比对 |
 
 ### 📝 出题与批改
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| POST | `/api/exam/generate` | AI 出题（concept + type） |
-| POST | `/api/code/grade` | 双轨批改（代码 + 测试用例） |
-| POST | `/api/code/run` | 沙箱执行 Python 代码 |
-| POST | `/api/code/ast` | AST 静态分析（死循环/嵌套/复杂度） |
+| POST | `/api/exam/generate` | AI 单题生成（字段：`concept` + `qtype`） |
+| POST | `/api/exam/paper` | AI 批量生成试卷（字段：`concepts` + `count` + `qtypes`） |
+| POST | `/api/exam/grade` | 双轨批改（代码 + 测试用例 → 沙箱 + AST + LLM 评分） |
 
 ### 🎯 BKT 知识追踪
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | GET | `/api/bkt/mastery/{student_id}` | 学生各知识点掌握概率 |
-| POST | `/api/bkt/update` | 答题后更新掌握度（正确/错误反馈） |
 | GET | `/api/bkt/weak/{student_id}` | 学生薄弱知识点 Top-N |
+| GET | `/api/bkt/heatmap` | 班级掌握度热力图数据 |
+| POST | `/api/bkt/record` | 答题后更新掌握度（`student_id` + `concept_id` + `correct`） |
 
-### 👩‍🏫 教师端 🔐（teacher 角色）
+### 👩‍🏫 教师端 🔐（整组需 teacher 角色）
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| GET | `/api/teacher/dashboard` | 班级聚合数据（热力图 + 错题榜 + 统计） |
-| GET | `/api/teacher/report` | LLM 自动生成学情 Markdown 报告 |
+| GET | `/api/teacher/dashboard` | 班级聚合数据（热力图 + 统计 + 概览） |
+| GET | `/api/teacher/wrong-top` | 高频错题榜（按知识点聚合） |
 | GET | `/api/teacher/students` | 学生列表（按薄弱度排序） |
-| GET | `/api/teacher/student/{id}` | 单个学生详情 |
+| GET | `/api/teacher/student/{student_id}` | 单个学生详情（BKT + 错题） |
+| GET | `/api/teacher/report` | LLM 自动生成学情 Markdown 报告 |
 
 ### 🖼️ 多模态
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| POST | `/api/multimodal/ask` | 图片理解（Base64 + 问题） |
+| POST | `/api/multimodal/analyze` | 图片理解（`image` Base64 data URL + `question`），内部结合 GraphRAG |
 
 ### 📕 错题本
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| GET | `/api/wrongbook/list` | 当前学生错题列表 |
+| GET | `/api/wrongbook/list/{student_id}` | 学生错题列表 |
+| GET | `/api/wrongbook/retry/{student_id}?limit=10` | 获取可重做错题 |
+| GET | `/api/wrongbook/counts/{student_id}` | 各知识点错题计数 |
 | POST | `/api/wrongbook/add` | 记录错题 |
-| GET | `/api/wrongbook/retry` | 获取可重做错题 |
+| POST | `/api/wrongbook/record` | 答题结果记录（前端主用） |
+| DELETE | `/api/wrongbook/clear/{student_id}` | 清空学生错题本 |
 
 ### 🛠️ 系统
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | GET | `/health` | 健康检查（含运行指标） |
-| GET | `/api/metrics` 🔐 | 运行指标快照（教师角色） |
+| GET | `/api/metrics` 🔐 | 运行指标快照（teacher 角色） |
 
 ### 💾 数据文件
 
@@ -459,7 +478,7 @@ CodeMentor/
 │   │   │   ├── graphrag_service.py # 图谱 + 向量混合检索
 │   │   │   ├── ast_service.py    # Python AST 分析（死循环/嵌套/递归/复杂度）
 │   │   │   ├── sandbox_service.py # subprocess 沙箱（黑名单 + 超时 + Docker 模式）
-│   │   │   ├── bkt_service.py    # 贝叶斯知识追踪（初始 0.3 / 正确 +0.15 / 错误 -0.10）
+│   │   │   ├── bkt_service.py    # 掌握度更新（简化版 BKT：初始 0.3 / 正确 +0.15 / 错误 -0.10）
 │   │   │   ├── exam_service.py   # AI 题目生成
 │   │   │   ├── grading_service.py # 双轨批改（沙箱 + AST + LLM 解释）
 │   │   │   ├── multimodal_service.py # Zhipu GLM-4V-Flash 图片理解
@@ -494,11 +513,10 @@ CodeMentor/
 │   │   └── test_ratelimit.py     # 限流行为
 │   │
 │   ├── .env.example              # 📋 配置模板
-│   ├── requirements.txt          # 📦 依赖（13 项）
-│   └── README.md                 # 👈 你正在看的这个文件
+│   └── requirements.txt          # 📦 依赖（14 项）
 │
 └── 🎨 frontend/
-    └── index.html                # 🖼️ 单页前端（CDN 引入所有依赖，零构建）
+    └── index.html                # 🖼️ 单页前端（约 2200 行，CDN 引入所有依赖，零构建）
 ```
 
 ---
@@ -516,7 +534,7 @@ pytest tests/ -v
 |------|---------|
 | `test_api` | 对话 / 图谱 / 学情 / 登录端点可达性 |
 | `test_ast` | 死循环检测 / 嵌套循环计数 / 递归识别 / 复杂度估算 |
-| `test_bkt` | 贝叶斯更新正确性 / 边界夹紧 [0.05, 0.98] |
+| `test_bkt` | 掌握度更新正确性 / 边界夹紧 [0.05, 0.98] |
 | `test_sandbox` | subprocess 执行 / 危险模块拦截 / 超时强制终止 |
 | `test_security` | PBKDF2 哈希 / HMAC Token 签名 + 验证 |
 | `test_ratelimit` | 滑动窗口限流 / 豁免路径 |
@@ -547,16 +565,25 @@ pytest tests/ -v
 
 | 变量 | 默认值 | 必填 | 说明 |
 |------|--------|------|------|
+| `LLM_PROVIDER` | `deepseek` | 可选 | 提供商标识（仅作标记，实际走 OpenAI 兼容协议） |
 | `LLM_API_KEY` | — | ✅ | 大模型 API Key（主 LLM） |
-| `LLM_BASE_URL` | — | ✅ | 主 LLM 地址（如 `https://api.deepseek.com/v1`） |
-| `LLM_MODEL` | — | ✅ | 主 LLM 名称（如 `deepseek-chat`） |
-| `MULTIMODAL_API_KEY` | — | 可选 | 视觉模型 Key（主模型不支持视觉时必填） |
-| `MULTIMODAL_MODEL` | `glm-4v-flash` | 可选 | 视觉模型名称 |
+| `LLM_BASE_URL` | `https://api.deepseek.com/v1` | ✅ | 主 LLM 地址 |
+| `LLM_MODEL` | `deepseek-chat` | ✅ | 主 LLM 名称 |
 | `EMBEDDING_LOCAL` | `false` | 可选 | `true` 则用本地 sentence-transformers |
+| `EMBEDDING_MODEL` | `text-embedding-v3` | 可选 | Embedding 模型名（接口不可用时自动降级本地哈希向量） |
+| `MULTIMODAL_API_KEY` | — | 可选 | 视觉模型 Key（主模型不支持视觉时必填） |
+| `MULTIMODAL_BASE_URL` | — | 可选 | 视觉模型地址（如 `https://open.bigmodel.cn/api/paas/v4`） |
+| `MULTIMODAL_MODEL` | — | 可选 | 视觉模型名称（如 `glm-4v-flash`） |
 | `SANDBOX_TIMEOUT` | `5` | 可选 | 沙箱执行超时秒数 |
-| `SANDBOX_ALLOWED_LANGS` | `python` | 可选 | 允许的语言（逗号分隔） |
+| `SANDBOX_ALLOWED_LANGS` | `python` | 可选 | 允许执行的语言 |
+| `SANDBOX_MODE` | `auto` | 可选 | `auto` / `docker` / `subprocess` |
+| `SANDBOX_DOCKER_IMAGE` | `python:3.11-slim` | 可选 | Docker 沙箱镜像 |
+| `AUTH_SECRET` | 空（用开发默认值） | 可选 | HMAC 签名密钥，**生产必须设置** |
+| `RATE_LIMIT_PER_MIN` | `60` | 可选 | 每 IP 每分钟请求上限 |
 | `DATA_DIR` | `./data` | 可选 | 运行时数据目录 |
-| `PORT` | `8080` | 可选 | 服务端口 |
+| `CHROMA_DIR` | `./data/chroma` | 可选 | 向量库目录 |
+| `GRAPH_FILE` | `./data/knowledge_graph.json` | 可选 | 图谱文件路径 |
+| `PORT` | `8000` | 可选 | 服务端口（启动时用 `--port 8080` 覆盖为 8080） |
 | `HOST` | `0.0.0.0` | 可选 | 服务监听地址 |
 
 ### 推荐供应商
@@ -572,35 +599,38 @@ pytest tests/ -v
 ## 🐳 Docker 部署
 
 ```yaml
-# docker-compose.yml（节选）
-version: '3.8'
+# docker/docker-compose.yml（实际内容）
 services:
-  backend:
+  codementor:                     # ← 服务名是 codementor
     build:
-      context: ../backend
-      dockerfile: ../docker/Dockerfile.backend
+      context: ..
+      dockerfile: docker/Dockerfile.backend
+    container_name: codementor-api
     ports:
       - "8080:8080"
     env_file:
       - ../backend/.env
+    environment:
+      - SANDBOX_MODE=auto         # 有 docker.sock → 用容器隔离，否则 subprocess
+      - RATE_LIMIT_PER_MIN=60
     volumes:
-      - ../backend/data:/app/data
-      - ../frontend:/app/static:ro
+      - codementor-data:/app/data
+      # 挂载 docker CLI 与 socket，使后端可启动沙箱容器（嵌套调用）
+      - /var/run/docker.sock:/var/run/docker.sock
+    restart: unless-stopped
 
-  sandbox:
-    build:
-      context: ../backend
-      dockerfile: ../docker/Dockerfile.sandbox
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-    # sandbox 模式自动检测：有 docker.sock → Docker 隔离；否则 subprocess
+volumes:
+  codementor-data:
 ```
 
 启动：
 
 ```bash
-cd docker && docker-compose up -d
+docker compose -f docker/docker-compose.yml up -d --build
 ```
+
+> 💡 只有 **一个服务**：沙箱不是独立容器，而是由后端在运行时按需 `docker run` 起临时容器（`Dockerfile.sandbox` 即该镜像）。所以挂载 `docker.sock` 是必须的。
+> 构建上下文是**仓库根目录**（因为要同时拷贝 `backend/` 和 `frontend/`）。
 
 ---
 
@@ -611,7 +641,7 @@ cd docker && docker-compose up -d
 | 沙箱执行任意代码 | subprocess + 危险模块黑名单 (`os.system`, `subprocess`, `eval`) + 5s 超时 | 替换为 Docker 容器隔离（compose 已预留） |
 | API Key 泄露 | `.env` gitignore · PBKDF2 哈希存储密码 | 使用密钥管理服务（Vault / K8s Secrets） |
 | 暴力登录 | 滑动窗口限流 60 req/min · /auth 路径豁免过高频率 | 加验证码 / IP 黑名单 |
-| Markdown XSS | marked.js `sanitize` 默认开启 | 审查 `graph-chip` 注入点 |
+| Markdown XSS | **DOMPurify** 消毒所有 LLM 输出（marked v5+ 已移除内置 sanitize）· 用户消息用 `textContent` 写入 | 后端也做输入长度限制 |
 
 > ⚠️ 本项目为**竞赛演示**用途，未经过生产环境安全审计。禁止直接用于生产部署。
 
@@ -619,7 +649,7 @@ cd docker && docker-compose up -d
 
 ## 🎨 前端打磨亮点
 
-前端为单文件 SPA（`frontend/index.html`，~1700 行），所有依赖通过 CDN 引入（TailwindCSS + Marked.js + Highlight.js + ECharts），**零构建、零 node_modules**。
+前端为单文件 SPA（`frontend/index.html`，约 2200 行），所有依赖通过 CDN 引入（TailwindCSS + Marked.js + Highlight.js + ECharts + DOMPurify），**零构建、零 node_modules**。
 
 ### 已实现的 40+ 项交互打磨
 
@@ -709,15 +739,19 @@ A: 两个考虑：
 如果后续要做产品化，推荐拆成 Vue 3 + Vite + Pinia。
 </details>
 
-<details><summary><b>Q: BKT 参数（0.3 / +0.15 / -0.10）是怎么选的？</b></summary>
+<details><summary><b>Q: BKT 参数（0.3 / +0.15 / -0.10）是怎么来的？</b></summary>
 
-A: 来自论文常用值。贝叶斯知识追踪的四个参数：
-- 初始掌握度 p(L0) = 0.3（新手大概率不会）
-- 学会概率 p(T) = 0.15（答题后提升）
-- 猜测概率 p(G) = 0.2（不会但猜对）
-- 失误概率 p(S) = 0.1（会但答错）
+A: **本项目实现的是 BKT 的工程简化版，不是严格的贝叶斯公式**。答辩时建议如实说明。
 
-每次答题后：正确 → 贝叶斯更新提升 ~0.15，错误 → 下降 ~0.10，夹紧到 [0.05, 0.98]。可以在 `backend/app/services/bkt_service.py` 里调。
+真正的 BKT 会用四个参数做贝叶斯更新：
+- p(L0) 初始掌握概率、p(T) 转移概率、p(G) 猜测概率、p(S) 失误概率
+
+本项目的实现（[bkt_service.py](backend/app/services/bkt_service.py)）用线性增量代替：
+- 初始掌握度 0.3（新手大概率不会）
+- 答对一次 +0.15，答错一次 −0.10
+- 结果夹紧到 [0.05, 0.98]，避免"一次答对就满分"和"一次答错就归零"
+
+**为什么这样设计**：竞赛周期内，真正的 BKT 需要按知识点训练 p(T)/p(G)/p(S) 参数，缺少真实答题数据时拟合出的参数没有意义；线性增量在演示数据下更稳定、可解释，也足够驱动"薄弱点排序"和"学习路径推荐"。如需升级为完整 BKT，替换 `update_mastery()` 即可，接口不变。
 </details>
 
 ---
@@ -740,10 +774,10 @@ MIT License — 用于竞赛和教育用途。
 
 ## 🙏 致谢
 
-- **LangChain** — Agent 编排参考
+- **LangChain / sse-starlette** — 依赖清单中保留，架构参考其编排与 SSE 设计（当前实际实现为自研调度 + FastAPI StreamingResponse）
 - **DeepSeek / Zhipu AI** — 模型服务
 - **FastAPI Community** — SSE + Metrics 中间件参考
-- **Knowledge** — 62 节点图谱基于《计算机学科知识图谱构建》论文种子
+- **知识图谱** — 62 节点由项目组依据计算机专业核心课程体系（数据结构 / 算法 / 操作系统 / 编程范式）手工整理，非直接引用论文数据集
 
 ---
 
