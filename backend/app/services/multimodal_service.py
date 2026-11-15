@@ -1,9 +1,10 @@
-"""多模态截图答疑服务 — 接入视觉大模型（Qwen-VL / GPT-4o 等 OpenAI 兼容接口）
-DeepSeek 不支持视觉，需单独配置 MULTIMODAL_*；未配置时返回引导信息
+"""多模态截图答疑服务 — 使用用户自己的远程 Key。
+
+DeepSeek 不支持视觉；选择智谱 GLM 时复用同一个 Key 调用 glm-4v-flash。
+服务端不保存任何 Key。
 """
-import base64
 import httpx
-from app.core.config import get_settings
+from app.core.llm_config import LLMConfig
 from app.core.logger import get_logger
 from app.services.graphrag_service import get_graphrag
 
@@ -11,36 +12,30 @@ logger = get_logger("multimodal")
 
 
 class MultimodalService:
-    def __init__(self):
-        self.cfg = get_settings()
+    def __init__(self, config: LLMConfig):
+        self.config = config
         self.graphrag = get_graphrag()
 
     def _resolve_vendor(self):
-        # 优先用独立的多模态配置，否则回退到主 LLM
-        if self.cfg.multimodal_api_key and self.cfg.multimodal_base_url and self.cfg.multimodal_model:
-            # MULTIMODAL_MODEL 支持逗号分隔多个候选，按顺序尝试，哪个开通了就用哪个
-            models = [m.strip() for m in self.cfg.multimodal_model.split(",") if m.strip()]
-            return {
-                "api_key": self.cfg.multimodal_api_key,
-                "base_url": self.cfg.multimodal_base_url,
-                "models": models,
-                "separate": True,
-            }
+        if not self.config.has_vision:
+            return None
         return {
-            "api_key": self.cfg.llm_api_key,
-            "base_url": self.cfg.llm_base_url,
-            "models": [self.cfg.llm_model],
-            "separate": False,
+            "api_key": self.config.api_key,
+            "base_url": self.config.base_url,
+            "models": [self.config.vision_model],
         }
 
     async def analyze_image(self, image_b64: str, question: str = "这张图里有什么算法或数据结构？请详细讲解。") -> dict:
         """
         调用视觉模型解析图片，结合 GraphRAG 学科知识返回解析
-        image_b64: base64 编码的图片（不带 data: 前缀）
+        image_b64: base64 编码的图片（可带 data: 前缀）
         """
         vendor = self._resolve_vendor()
-        if not vendor["api_key"]:
-            return {"ok": False, "message": "未配置 LLM_API_KEY"}
+        if vendor is None:
+            return {
+                "ok": False,
+                "message": "当前选择的模型提供方不支持图片理解。请在「模型设置」中切换到智谱 GLM（同一 Key 即可使用视觉模型）。",
+            }
 
         # 先做一次 GraphRAG 检索拿到学科上下文（基于用户问题）
         ctx_text = ""
@@ -114,16 +109,12 @@ class MultimodalService:
                     last_err = f"{model} -> {resp.status_code}"
                     logger.warning(f"多模态模型 {model} 不可用({resp.status_code})，尝试下一个")
 
-                # 全部失败，返回开通指引
+                # 全部失败，返回可理解的错误
                 return {
                     "ok": False,
                     "message": (
-                        f"所有候选视觉模型均不可用（{last_err}）。\n\n"
-                        "请按以下步骤开通（每个模型独立 100 万 Token 免费额度）：\n"
-                        "1. 打开 https://bailian.console.aliyun.com/\n"
-                        "2. 左侧「模型广场」→ 搜索 qwen-vl\n"
-                        "3. 找到 qwen3-vl-plus / qwen-vl-max，点「开通服务」\n"
-                        "4. 开通后重新上传图片即可"
+                        f"视觉模型暂时不可用（{last_err or '未知错误'}）。"
+                        "请检查智谱 API Key 是否已开通 glm-4v-flash，或稍后重试。"
                     ),
                 }
         except Exception as e:
@@ -131,10 +122,5 @@ class MultimodalService:
             return {"ok": False, "message": f"调用异常: {e}"}
 
 
-_mm = None
-
-def get_multimodal() -> MultimodalService:
-    global _mm
-    if _mm is None:
-        _mm = MultimodalService()
-    return _mm
+def get_multimodal(config: LLMConfig) -> MultimodalService:
+    return MultimodalService(config)

@@ -6,11 +6,11 @@
 """
 import json
 from typing import AsyncGenerator, Optional
-from app.services.llm_service import get_llm
+from app.core.llm_config import LLMConfig
+from app.services.llm_service import LLMService
 from app.services.graphrag_service import get_graphrag
 from app.services.sandbox_service import execute_python
 from app.services.ast_service import analyze_code, features_to_text
-from app.services.bkt_service import get_bkt
 from app.services.graph_service import get_graph
 from app.core.logger import get_logger
 
@@ -25,6 +25,48 @@ STATUS_SENTINEL = "\x00STATUS\x00"
 def _status(stage: str, detail: str = "") -> str:
     """构造一条旁路状态事件（不会展示给学生，仅供前端渲染思考进度）"""
     return STATUS_SENTINEL + json.dumps({"stage": stage, "detail": detail}, ensure_ascii=False)
+
+
+def _format_profile_context(profile: Optional[dict]) -> str:
+    """把浏览器传来的本地学情摘要压成简短上下文；不落库、不写日志。"""
+    if not profile:
+        return ""
+    names = profile.get("names") or {}
+    weak = list(profile.get("weak") or [])
+    mastery = profile.get("mastery") or {}
+    if not weak and isinstance(mastery, dict):
+        for cid, score in sorted(mastery.items(), key=lambda kv: kv[1])[:8]:
+            try:
+                score = float(score)
+            except (TypeError, ValueError):
+                continue
+            if score < 0.6:
+                weak.append({
+                    "concept_id": cid,
+                    "name": names.get(cid, cid),
+                    "mastery": score,
+                })
+    lines = []
+    if weak:
+        parts = []
+        for w in weak[:8]:
+            cid = w.get("concept_id", "")
+            name = w.get("name") or names.get(cid) or cid
+            try:
+                score = float(w.get("mastery", 0))
+            except (TypeError, ValueError):
+                continue
+            parts.append(f"{name}({score:.0%})")
+        if parts:
+            lines.append("薄弱知识点：" + "、".join(parts))
+
+    wrong_counts = profile.get("wrong_counts") or {}
+    if isinstance(wrong_counts, dict) and wrong_counts:
+        top = sorted(wrong_counts.items(), key=lambda kv: kv[1], reverse=True)[:5]
+        parts = [f"{names.get(cid, cid)}×{int(n)}" for cid, n in top]
+        lines.append("高频错题：" + "、".join(parts))
+    return "\n".join(lines)
+
 
 
 # ---------- 工具定义（Function Calling 格式） ----------
@@ -120,8 +162,8 @@ SYSTEM_PROMPT = """你是 CodeMentor，一个懂代码、知图谱、能引导�
 
 
 class AgentService:
-    def __init__(self):
-        self.llm = get_llm()
+    def __init__(self, config: LLMConfig):
+        self.llm = LLMService(config)
         self.graphrag = get_graphrag()
 
     # ---------- 多轮对话压缩 ----------
@@ -142,7 +184,7 @@ class AgentService:
             return f"（摘要失败，共 {len(history)} 轮历史对话）"
 
     # ---------- 工具执行 ----------
-    async def _run_tool(self, tool_name: str, args: dict) -> str:
+    async def _run_tool(self, tool_name: str, args: dict, profile: Optional[dict] = None) -> str:
         logger.info(f"🔧 执行工具: {tool_name} | args={json.dumps(args, ensure_ascii=False)[:200]}")
         try:
             if tool_name == "search_knowledge":
@@ -166,35 +208,44 @@ class AgentService:
                     return f"❌ 代码执行失败\n--- 输出 ---\n{result.output}\n--- 错误 ---\n{result.error}"
 
             elif tool_name == "get_learning_path":
-                sid = args.get("student_id", "demo_student")
                 topic = args.get("topic", "")
-                bkt = get_bkt()
                 graph = get_graph()
-                mastery = bkt.get_mastery(sid)
+                profile = profile or {}
+                mastery = profile.get("mastery") or {}
+                wrong_counts = profile.get("wrong_counts") or {}
+                names = profile.get("names") or {}
 
-                # 获取错题数，作为推荐权重因子
-                from app.services.wrongbook_service import get_wrongbook
-                wrong_counts = get_wrongbook().get_wrong_count_by_student(sid)
+                if not mastery and not wrong_counts:
+                    return (
+                        "📊 当前浏览器中还没有个人练习记录。先到「练一练」完成几道题，"
+                        "我就能根据你的本地学情给出学习路径（这些数据不会上传服务端）。"
+                    )
+
                 max_wrong = max(wrong_counts.values()) if wrong_counts else 1
 
                 # 综合权重 = 薄弱度(1-mastery)*0.6 + 错题归一化*0.4
                 all_concepts = set(mastery.keys()) | set(wrong_counts.keys())
                 scored = []
                 for cid in all_concepts:
-                    m = mastery.get(cid, 0.3)
-                    wc = wrong_counts.get(cid, 0)
+                    try:
+                        m = float(mastery.get(cid, 0.3))
+                    except (TypeError, ValueError):
+                        m = 0.3
+                    wc = int(wrong_counts.get(cid, 0) or 0)
                     weight = (1 - m) * 0.6 + (wc / max_wrong if max_wrong else 0) * 0.4
                     scored.append((cid, m, wc, weight))
 
-                # 1. 按综合权重排序取最薄弱 3 个
                 scored.sort(key=lambda x: x[3], reverse=True)
                 weak = scored[:3]
-                weak_lines = "\n".join(
-                    f"- {cid}: 掌握度 {m:.0%}，错题 {wc} 次，综合优先级 {w:.2f}"
-                    for cid, m, wc, w in weak
-                ) or "（暂无答题数据，默认推荐算法基础）"
 
-                # 2. 结合图谱：为每个薄弱点找前置知识（先补前置再学当前）
+                def _name(cid: str, node: dict | None = None) -> str:
+                    return (node or {}).get("name") or names.get(cid) or cid
+
+                weak_lines = "\n".join(
+                    f"- {_name(cid)}: 掌握度 {m:.0%}，错题 {wc} 次，综合优先级 {w:.2f}"
+                    for cid, m, wc, w in weak
+                )
+
                 path_lines = []
                 for cid, m, wc, w in weak:
                     node = graph.get_node(cid)
@@ -207,12 +258,11 @@ class AgentService:
                         prereqs = graph.get_upstream(cid)
                         reason = f"掌握度 {m:.0%}" + (f"，累计答错 {wc} 次" if wc else "")
                         if prereqs:
-                            names = "、".join(p.get("name", p["id"]) for p in prereqs[:3])
-                            path_lines.append(f"📌 [{node.get('name', cid)}]（{reason}）建议先掌握前置：{names}")
+                            prereq_names = "、".join(p.get("name", p["id"]) for p in prereqs[:3])
+                            path_lines.append(f"📌 [{node.get('name', cid)}]（{reason}）建议先掌握前置：{prereq_names}")
                         else:
                             path_lines.append(f"📌 [{node.get('name', cid)}]（{reason}）无明确前置，可直接开始")
 
-                # 3. 若用户指定了 topic，额外给出该主题的相关节点
                 topic_lines = ""
                 if topic:
                     path = await self.graphrag.retrieve(topic, graph_depth=1, vector_top_k=2)
@@ -222,8 +272,10 @@ class AgentService:
                     )
 
                 return (
-                    f"📊 学生 {sid} 学情优先级（综合掌握度+错题数）:\n{weak_lines}\n\n"
-                    f"🧭 基于知识图谱前置关系的学习路径:\n" + ("\n".join(path_lines) if path_lines else "暂无薄弱节点") + topic_lines
+                    f"📊 你的本地学情优先级（综合掌握度+错题数）:\n{weak_lines}\n\n"
+                    f"🧭 基于知识图谱前置关系的学习路径:\n"
+                    + ("\n".join(path_lines) if path_lines else "暂无薄弱节点")
+                    + topic_lines
                 )
 
             return f"未知工具: {tool_name}"
@@ -237,6 +289,7 @@ class AgentService:
         user_message: str,
         code_context: str = "",
         history: Optional[list[dict]] = None,
+        profile: Optional[dict] = None,
     ) -> AsyncGenerator[str, None]:
         """
         完整的 Agent 对话流程：
@@ -249,7 +302,16 @@ class AgentService:
         if code_context:
             current_content += f"\n\n📝 学生提交的代码:\n```python\n{code_context}\n```"
 
-        messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+        system_content = SYSTEM_PROMPT
+        profile_text = _format_profile_context(profile)
+        if profile_text:
+            system_content += (
+                "\n\n## 当前学生本地学情（来自浏览器，仅本次回答使用，不持久化）\n"
+                + profile_text
+                + "\n请据此调整讲解深度和推荐顺序，但不要声称你读取了服务端学情。"
+            )
+
+        messages = [{"role": "system", "content": system_content}]
         if history:
             # 多轮压缩：超过 8 轮时，对更早的轮次做摘要，保留最近 4 轮原文
             if len(history) > 8:
@@ -299,7 +361,7 @@ class AgentService:
                 except json.JSONDecodeError:
                     func_args = {}
                 yield _status("tool", f"正在调用工具 {func_name}")
-                tool_result = await self._run_tool(func_name, func_args)
+                tool_result = await self._run_tool(func_name, func_args, profile)
                 messages.append({
                     "role": "tool",
                     "tool_call_id": tc["id"],
@@ -326,9 +388,10 @@ class AgentService:
                 yield chunk
         except Exception as e:
             logger.error(f"流式回答中断: {e}")
-            yield f"\n\n⚠️ 回答中断：{e}\n\n请稍后重试；若持续失败，请检查 `.env` 中的 LLM_API_KEY 与网络连通性。"
+            yield f"\n\n⚠️ 回答中断：{e}\n\n请稍后重试；若持续失败，请检查右上角「配置模型」中的 API Key 与网络连通性。"
 
     # ---------- 单轮同步对话（不带工具调度，快速响应） ----------
+
     async def quick_answer(self, query: str) -> str:
         """快速问答：先走 GraphRAG，再喂 LLM 组织语言"""
         retrieved = await self.graphrag.retrieve(query)
@@ -344,10 +407,6 @@ class AgentService:
         return resp["choices"][0]["message"]["content"]
 
 
-_agent = None
-
-def get_agent() -> AgentService:
-    global _agent
-    if _agent is None:
-        _agent = AgentService()
-    return _agent
+def get_agent(config: LLMConfig) -> AgentService:
+    """每次请求使用用户自己的 LLM 配置构造 Agent，服务端不缓存 Key。"""
+    return AgentService(config)

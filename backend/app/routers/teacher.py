@@ -1,9 +1,16 @@
-"""教师端路由 — 全部接口需 teacher 角色（Bearer Token）"""
+"""教师端旧路由（DEPRECATED — 未注册）。
+
+教师能力已迁移到 classroom 路由：
+- 多班级、统一作业、作业看板、班级报告
+- 不读取任何学生日常练习数据
+"""
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
+from app.core.llm_config import LLMConfig, require_llm_config
 from app.core.security import require_role
 from app.services.bkt_service import get_bkt
 from app.services.graph_service import get_graph
+from app.services.llm_service import LLMService
 from app.services.wrongbook_service import get_wrongbook
 
 router = APIRouter(
@@ -13,22 +20,17 @@ router = APIRouter(
 )
 
 
-class LLMService:
-    """延迟导入避免循环"""
-    @staticmethod
-    async def summarize(prompt: str) -> str:
-        from app.services.llm_service import get_llm
-        llm = get_llm()
-        messages = [
-            {"role": "system", "content": "你是资深教育数据分析专家，用简洁中文总结班级学情，突出薄弱点和改进建议。"},
-            {"role": "user", "content": prompt},
-        ]
-        try:
-            resp = await llm.chat(messages, temperature=0.3)
-            content = resp["choices"][0]["message"]["content"]
-            return content or "⚠️ AI 未返回有效内容，请稍后重试。"
-        except Exception as e:
-            return f"[LLM 摘要失败: {e}]"
+async def _summarize(llm: LLMService, prompt: str) -> str:
+    messages = [
+        {"role": "system", "content": "你是资深教育数据分析专家，用简洁中文总结班级学情，突出薄弱点和改进建议。"},
+        {"role": "user", "content": prompt},
+    ]
+    try:
+        resp = await llm.chat(messages, temperature=0.3)
+        content = resp["choices"][0]["message"]["content"]
+        return content or "⚠️ AI 未返回有效内容，请稍后重试。"
+    except Exception as e:
+        return f"[LLM 摘要失败: {e}]"
 
 
 def _build_ranking_with_names(ranking: list[dict]) -> list[dict]:
@@ -145,7 +147,7 @@ async def student_detail(student_id: str):
 
 
 @router.get("/report")
-async def generate_report():
+async def generate_report(config: LLMConfig = Depends(require_llm_config)):
     """LLM 自动生成学情报告（含 BKT 掌握度 + 高频错题）"""
     bkt = get_bkt()
     wb = get_wrongbook()
@@ -181,5 +183,5 @@ async def generate_report():
 
 用 Markdown 格式输出，不超过 600 字。"""
 
-    summary = await LLMService.summarize(prompt)
+    summary = await _summarize(LLMService(config), prompt)
     return {"report": summary, "heatmap": heatmap, "wrong_ranking": wrong_ranking}

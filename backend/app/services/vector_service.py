@@ -1,10 +1,10 @@
-"""向量检索服务 — 基于 ChromaDB + LLM Embedding"""
+"""向量检索服务 — ChromaDB + 固定 384 维本地哈希 Embedding"""
 import os
 import chromadb
 from typing import Optional
 from app.core.config import get_settings
 from app.core.logger import get_logger
-from app.services.llm_service import get_llm
+from app.services.llm_service import local_hash_embed
 
 logger = get_logger("vector")
 
@@ -20,8 +20,7 @@ class VectorStore:
             name=COLLECTION_NAME,
             metadata={"hnsw:space": "cosine"},
         )
-        self._llm = get_llm()
-        logger.info(f"📚 ChromaDB 集合加载: {self.collection.count()} 条文档")
+        logger.info(f"📚 ChromaDB 集合加载: {self.collection.count()} 条文档（本地哈希向量 384 维）")
 
     async def add_document(
         self,
@@ -29,8 +28,8 @@ class VectorStore:
         text: str,
         metadata: Optional[dict] = None,
     ):
-        """添加单条文档（自动生成 embedding）"""
-        embeddings = await self._llm.embed([text])
+        """添加单条文档（使用本地哈希 embedding）"""
+        embeddings = local_hash_embed([text])
         meta = metadata or {}
         meta["chunk_id"] = doc_id
         self.collection.add(
@@ -48,7 +47,7 @@ class VectorStore:
         if not docs:
             return
         texts = [d["text"] for d in docs]
-        embeddings = await self._llm.embed(texts)
+        embeddings = local_hash_embed(texts)
         ids = [d["id"] for d in docs]
         metadatas = [d.get("metadata", {}) for d in docs]
         for m in metadatas:
@@ -65,12 +64,19 @@ class VectorStore:
         """向量检索，返回 [{"id", "text", "metadata", "distance"}]"""
         if self.collection.count() == 0:
             return []
-        embeddings = await self._llm.embed([query_text])
-        results = self.collection.query(
-            query_embeddings=embeddings,
-            n_results=min(top_k, self.collection.count()),
-            include=["documents", "metadatas", "distances"],
-        )
+        embeddings = local_hash_embed([query_text])
+        try:
+            results = self.collection.query(
+                query_embeddings=embeddings,
+                n_results=min(top_k, self.collection.count()),
+                include=["documents", "metadatas", "distances"],
+            )
+        except Exception as e:
+            # 旧向量库可能来自不同 embedding 维度；查询失败时降级为空结果，
+            # 不让整个 GraphRAG / 对话链路崩溃。
+            logger.warning(f"向量检索失败（可能需要删除 data/chroma 重建）: {e}")
+            return []
+        results = results
         out = []
         ids = results.get("ids", [[]])[0]
         docs = results.get("documents", [[]])[0]

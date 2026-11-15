@@ -86,16 +86,16 @@ import { API } from './env.js';
     let html = marked.parse(content);
     // 4. [text](graph:id) → 先转成带 data 属性的 span（graph: 协议会被消毒器移除 href，故提前转换）
     html = html.replace(/<a href="graph:([^"]+)">([^<]+)<\/a>/g,
-      (m, id, text) => `<span class="graph-chip" data-graph-id="${id}">🏷️ ${text}</span>`);
+      (m, id, text) => `<span class="graph-chip" data-graph-id="${id}">${text}</span>`);
     // 5. XSS 消毒（marked v5+ 默认不消毒）
     html = sanitizeHtml(html, { ADD_ATTR: ['data-graph-id'] });
-    // 6. 消毒后还原图谱节点卡片（onclick 由本地生成，可信）
+    // 6. 消毒后还原图谱节点卡片（onclick 由本地生成，必须对 id 做 JS/HTML 双重转义）
     html = html.replace(/<span class="graph-chip" data-graph-id="([^"]+)">/g,
-      (m, id) => `<span class="graph-chip" onclick="askAboutGraph('${id}')" title="点击就该知识点提问">`);
+      (m, id) => `<span class="graph-chip" onclick="askAboutGraph(${jsStr(id)})" title="点击就该知识点提问">`);
     // 7. 插入工具徽章（工具名来自 LLM，需转义）
     tools.forEach((t, i) => {
       html = html.replace(`__TOOL${i}__`,
-        `<span class="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">🔧 工具: ${escapeHtml(t)}</span><br>`);
+        `<span class="tool-badge"><svg class="cm-icon cm-icon-sm" aria-hidden="true"><use href="#i-settings"></use></svg>工具 · ${escapeHtml(t)}</span><br>`);
     });
     // 8. 代码块增强：语法高亮 + 语言标签 + 复制按钮
     html = enhanceCodeBlocks(html);
@@ -140,7 +140,7 @@ import { API } from './env.js';
       btn.onclick = (e) => {
         const text = code ? code.textContent : pre.textContent;
         navigator.clipboard.writeText(text).then(() => {
-          btn.textContent = '✓ 已复制';
+          btn.textContent = '已复制';
           btn.classList.add('copied');
           setTimeout(() => { btn.textContent = '复制'; btn.classList.remove('copied'); }, 1500);
         });
@@ -169,15 +169,13 @@ import { API } from './env.js';
     const container = document.getElementById('chat-messages');
     const wrap = document.createElement('div');
     const time = new Date().toLocaleTimeString('zh-CN', {hour:'2-digit', minute:'2-digit'});
-    wrap.className = 'chat-msg-wrap ' + role + ' flex gap-3 chat-msg ' + (role === 'user' ? 'flex-row-reverse' : '');
+    wrap.className = 'chat-msg-wrap ' + role;
     wrap.innerHTML = `
-      <div class="w-8 h-8 rounded-full flex-shrink-0 flex items-center justify-center font-bold text-white text-sm ${role === 'user' ? 'bg-gradient-to-br from-blue-500 to-cyan-500' : 'bg-gradient-to-br from-indigo-500 to-purple-600'}">
-        ${role === 'user' ? '你' : 'C'}
+      <div class="cm-avatar">${role === 'user' ? '你' : 'C'}</div>
+      <div class="flex-1 min-w-0">
+        <div class="prose-cm cm-bubble ${isStreaming ? 'typing-cursor' : ''}"></div>
       </div>
-      <div class="flex-1 max-w-[85%] ${role === 'user' ? 'text-right' : ''}">
-        <div class="prose-cm inline-block text-left p-3 rounded-xl ${role === 'user' ? 'bg-indigo-600/90' : 'bg-slate-700/70'} ${isStreaming ? 'typing-cursor' : ''}" style="white-space:pre-wrap"></div>
-      </div>
-      <span class="msg-meta">${role === 'user' ? '👤 你' : '🤖 CodeMentor'} · ${time} · <button onclick="copyMsg(this)" class="hover:text-indigo-300 transition">📋 复制</button></span>
+      <span class="msg-meta">${role === 'user' ? '你' : 'CodeMentor'} · ${time} · <button onclick="copyMsg(this)">复制</button></span>
     `;
     container.appendChild(wrap);
     // 内容用 textContent 写入，避免用户输入被当作 HTML 解析
@@ -191,8 +189,8 @@ import { API } from './env.js';
     const bubble = btn.closest('.chat-msg-wrap').querySelector('.prose-cm');
     const text = bubble.innerText;
     navigator.clipboard.writeText(text).then(() => {
-      btn.textContent = '✓ 已复制';
-      setTimeout(() => btn.textContent = '📋 复制', 1200);
+      btn.textContent = '已复制';
+      setTimeout(() => btn.textContent = '复制', 1200);
     });
   }
 

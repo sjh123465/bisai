@@ -3,25 +3,115 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>CodeMentor — Agent + GraphRAG 助学平台</title>
+<title>CodeMentor · 计算机助学</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='10' fill='%23A8442E'/%3E%3Ctext x='50' y='72' font-size='58' text-anchor='middle' fill='%23FBF8F1' font-family='Georgia,serif'%3EC%3C/text%3E%3C/svg%3E">
 
 <!-- ===== 依赖本地化：优先加载 frontend/vendor（零外网依赖），失败才回落 CDN ===== -->
 <link rel="preload" href="./vendor/tailwind.min.js" as="script">
 <link rel="preload" href="./vendor/echarts.min.js" as="script">
 <link rel="preload" href="./vendor/highlight.min.js" as="script">
 <link rel="preload" href="./vendor/marked.min.js" as="script">
-<link rel="preload" href="./vendor/github-dark.min.css" as="style">
 
 <!-- Tailwind（本地） -->
 <script src="./vendor/tailwind.min.js"
         onerror="this.onerror=null;this.src='https://cdn.tailwindcss.com'"></script>
+<script>
+  /* 纸上书房色板：把现有 Tailwind 工具类映射到设计 token */
+  tailwind.config = {
+    theme: {
+      extend: {
+        colors: {
+          slate: {
+            50:'#1F1D1A', 100:'#1F1D1A', 200:'#3B3732', 300:'#57524A', 400:'#857E72',
+            500:'#9A9386', 600:'#A39B8D', 700:'#DDD5C6', 800:'#FBF8F1', 900:'#F6F2E9', 950:'#EFE9DD'
+          },
+          gray: {
+            50:'#1F1D1A', 100:'#1F1D1A', 200:'#3B3732', 300:'#57524A', 400:'#857E72',
+            500:'#9A9386', 600:'#A39B8D', 700:'#DDD5C6', 800:'#FBF8F1', 900:'#F6F2E9', 950:'#EFE9DD'
+          },
+          indigo: {
+            50:'#F7E9E3', 100:'#F0DDD5', 200:'#E5C4B7', 300:'#8C3624', 400:'#A8442E',
+            500:'#8C3624', 600:'#A8442E', 700:'#772A1E', 800:'#5F2218', 900:'#471A12'
+          },
+          purple: {
+            50:'#F7E9E3', 100:'#F0DDD5', 200:'#E5C4B7', 300:'#8C3624', 400:'#A8442E',
+            500:'#8C3624', 600:'#A8442E', 700:'#772A1E', 800:'#5F2218', 900:'#471A12'
+          },
+          violet: {
+            50:'#F7E9E3', 100:'#F0DDD5', 200:'#E5C4B7', 300:'#8C3624', 400:'#A8442E',
+            500:'#8C3624', 600:'#A8442E', 700:'#772A1E', 800:'#5F2218', 900:'#471A12'
+          },
+          blue: {
+            50:'#EDF1F5', 100:'#DDE5EC', 200:'#C2D1DC', 300:'#3E5C76', 400:'#365067',
+            500:'#2E4356', 600:'#253646', 700:'#1C2936', 800:'#16212B', 900:'#101820'
+          },
+          sky: {
+            50:'#EDF1F5', 100:'#DDE5EC', 200:'#C2D1DC', 300:'#3E5C76', 400:'#365067',
+            500:'#2E4356', 600:'#253646', 700:'#1C2936', 800:'#16212B', 900:'#101820'
+          },
+          cyan: {
+            50:'#EDF1F5', 100:'#DDE5EC', 200:'#C2D1DC', 300:'#3E5C76', 400:'#365067',
+            500:'#2E4356', 600:'#253646', 700:'#1C2936', 800:'#16212B', 900:'#101820'
+          },
+          emerald: {
+            50:'#E8EDE3', 100:'#DDE6D6', 200:'#C5D2BC', 300:'#4F6B4A', 400:'#455E40',
+            500:'#2F402C', 600:'#374C33', 700:'#263323', 800:'#1D271B', 900:'#141C13'
+          },
+          teal: {
+            50:'#E8EDE3', 100:'#DDE6D6', 200:'#C5D2BC', 300:'#4F6B4A', 400:'#455E40',
+            500:'#2F402C', 600:'#374C33', 700:'#263323', 800:'#1D271B', 900:'#141C13'
+          },
+          green: {
+            50:'#E8EDE3', 100:'#DDE6D6', 200:'#C5D2BC', 300:'#4F6B4A', 400:'#455E40',
+            500:'#2F402C', 600:'#374C33', 700:'#263323', 800:'#1D271B', 900:'#141C13'
+          },
+          amber: {
+            50:'#F7F0E2', 100:'#F0E4CF', 200:'#6E4F22', 300:'#85602A', 400:'#7A5726',
+            500:'#6E4C20', 600:'#8A5F26', 700:'#6E4C20', 800:'#573D1B', 900:'#3F2D14'
+          },
+          yellow: {
+            50:'#F7F0E2', 100:'#F0E4CF', 200:'#6E4F22', 300:'#85602A', 400:'#7A5726',
+            500:'#6E4C20', 600:'#8A5F26', 700:'#6E4C20', 800:'#573D1B', 900:'#3F2D14'
+          },
+          orange: {
+            50:'#F7F0E2', 100:'#F0E4CF', 200:'#6E4F22', 300:'#85602A', 400:'#7A5726',
+            500:'#6E4C20', 600:'#8A5F26', 700:'#6E4C20', 800:'#573D1B', 900:'#3F2D14'
+          },
+          rose: {
+            50:'#F8EAE7', 100:'#F1D8D2', 200:'#E6BBB1', 300:'#A33A2E', 400:'#8E3228',
+            500:'#772A22', 600:'#8E3228', 700:'#772A22', 800:'#5F221C', 900:'#471A15'
+          },
+          red: {
+            50:'#F8EAE7', 100:'#F1D8D2', 200:'#E6BBB1', 300:'#A33A2E', 400:'#8E3228',
+            500:'#772A22', 600:'#8E3228', 700:'#772A22', 800:'#5F221C', 900:'#471A15'
+          },
+          pink: {
+            50:'#F8EAE7', 100:'#F1D8D2', 200:'#E6BBB1', 300:'#A33A2E', 400:'#8E3228',
+            500:'#772A22', 600:'#8E3228', 700:'#772A22', 800:'#5F221C', 900:'#471A15'
+          }
+        },
+        borderRadius: {
+          lg: '6px', xl: '8px', '2xl': '10px', '3xl': '10px'
+        },
+        boxShadow: {
+          sm: 'none', DEFAULT: 'none', md: 'none', lg: 'none', xl: 'none',
+          '2xl': '0 8px 24px rgba(31,29,26,.08)'
+        },
+        fontFamily: {
+          sans: ['"Noto Sans SC"','"Source Han Sans SC"','"PingFang SC"','"Microsoft YaHei"','system-ui','sans-serif'],
+          serif: ['"Noto Serif SC"','"Source Han Serif SC"','"Songti SC"','STSong','SimSun','Georgia','serif'],
+          mono: ['"JetBrains Mono"','"SFMono-Regular"','Consolas','"Liberation Mono"','Menlo','monospace']
+        }
+      }
+    }
+  };
+</script>
 
 <!-- Markdown 渲染 + XSS 消毒 + 代码高亮（本地，失败回落 CDN） -->
 <script src="./vendor/marked.min.js"
         onerror="this.onerror=null;this.src='https://cdn.staticfile.org/marked/12.0.2/marked.min.js'"></script>
 <script src="./vendor/purify.min.js"
         onerror="this.onerror=null;this.src='https://cdn.staticfile.org/dompurify/3.0.8/purify.min.js'"></script>
-<link rel="stylesheet" href="./vendor/github-dark.min.css">
 <script src="./vendor/highlight.min.js"
         onerror="this.onerror=null;this.src='https://cdn.staticfile.org/highlight.js/11.9.0/highlight.min.js'"></script>
 <script src="./vendor/python.min.js"></script>
@@ -31,514 +121,395 @@
 <script src="./vendor/echarts.min.js"
         onerror="this.onerror=null;this.src='https://cdn.staticfile.org/echarts/5.5.0/echarts.min.js'"></script>
 
-<style>
-  * { scrollbar-width: thin; scrollbar-color: rgba(99,102,241,0.5) transparent; }
-  ::-webkit-scrollbar { width: 6px; height: 6px; }
-  ::-webkit-scrollbar-thumb { background: rgba(99,102,241,0.45); border-radius: 3px; }
-  ::-webkit-scrollbar-thumb:hover { background: rgba(99,102,241,0.7); }
-  ::-webkit-scrollbar-track { background: transparent; }
-
-  body { background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); min-height: 100vh; }
-
-  .prose-cm h1 { font-size: 1.25rem; font-weight: 700; color: #f8fafc; margin: 0.75rem 0 0.5rem; }
-  .prose-cm h2 { font-size: 1.125rem; font-weight: 600; color: #e2e8f0; margin: 0.6rem 0 0.4rem; border-left: 3px solid #6366f1; padding-left: 0.5rem; }
-  .prose-cm h3 { font-size: 1rem; font-weight: 600; color: #cbd5e1; margin: 0.5rem 0 0.3rem; }
-  .prose-cm p { margin: 0.3rem 0; line-height: 1.75; }
-  .prose-cm ul { list-style: disc; padding-left: 1.25rem; margin: 0.3rem 0; }
-  .prose-cm ol { list-style: decimal; padding-left: 1.25rem; margin: 0.3rem 0; }
-  .prose-cm li { margin: 0.15rem 0; }
-  .prose-cm code:not(pre code) { background: #334155; padding: 0.1rem 0.35rem; border-radius: 0.25rem; font-size: 0.85em; color: #a5f3fc; }
-  .prose-cm pre {
-    background: #0d1117;
-    border-radius: 0.75rem;
-    padding: 2.5rem 0.75rem 0.75rem;
-    margin: 0.75rem 0;
-    overflow-x: auto;
-    position: relative;
-    border: 1px solid rgba(99,102,241,0.15);
-    box-shadow: inset 0 1px 0 rgba(255,255,255,0.03);
-  }
-  .prose-cm pre code { font-size: 0.85rem; background: transparent; padding: 0; }
-  /* 代码块语言标签 */
-  .prose-cm pre.code-block::before {
-    content: attr(data-lang);
-    position: absolute;
-    top: 0; left: 0; right: 0;
-    padding: 0.35rem 0.75rem;
-    background: linear-gradient(90deg, rgba(99,102,241,0.2), transparent);
-    border-radius: 0.75rem 0.75rem 0 0;
-    font-size: 0.7rem;
-    font-family: 'SF Mono', Menlo, Consolas, monospace;
-    color: #a5b4fc;
-    letter-spacing: 0.05em;
-    text-transform: uppercase;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-  }
-  .prose-cm pre.code-block .code-copy {
-    position: absolute;
-    top: 0.3rem; right: 0.5rem;
-    background: rgba(99,102,241,0.2);
-    border: 1px solid rgba(99,102,241,0.35);
-    color: #c7d2fe;
-    font-size: 0.65rem;
-    padding: 0.15rem 0.55rem;
-    border-radius: 999px;
-    cursor: pointer;
-    opacity: 0;
-    transition: opacity 0.15s, background 0.15s;
-    font-family: inherit;
-    z-index: 2;
-  }
-  .prose-cm pre:hover .code-copy { opacity: 1; }
-  .prose-cm pre.code-block .code-copy:hover { background: rgba(99,102,241,0.4); }
-  .prose-cm pre.code-block .code-copy.copied { background: rgba(16,185,129,0.3); border-color: rgba(16,185,129,0.5); color: #6ee7b7; }
-  .prose-cm blockquote { border-left: 3px solid #6366f1; padding-left: 0.75rem; margin: 0.5rem 0; color: #94a3b8; background: rgba(99, 102, 241, 0.1); padding: 0.5rem 0.75rem; border-radius: 0 0.375rem 0.375rem 0; }
-  .prose-cm strong { color: #fbbf24; background: rgba(251,191,36,0.1); padding: 0 0.25rem; border-radius: 3px; }
-  .prose-cm hr { border-color: #475569; margin: 0.75rem 0; }
-  .prose-cm .graph-chip { display: inline-flex; align-items: center; gap: 0.25rem; background: linear-gradient(135deg, rgba(99,102,241,0.25), rgba(168,85,247,0.25)); border: 1px solid rgba(99,102,241,0.4); color: #c7d2fe; padding: 0.1rem 0.5rem; border-radius: 9999px; font-size: 0.8em; cursor: pointer; transition: all 0.2s; margin: 0 0.15rem; }
-  .prose-cm .graph-chip:hover { background: rgba(99,102,241,0.45); transform: translateY(-1px); }
-
-  .graph-node { cursor: grab; }
-  .graph-node:active { cursor: grabbing; }
-  .graph-node.label { font-size: 10px; fill: #e2e8f0; pointer-events: none; paint-order: stroke; stroke: #0f172a; stroke-width: 2px; stroke-linejoin: round; }
-  .graph-label-bg { pointer-events: none; }
-  .graph-edge { stroke: #475569; stroke-width: 1; opacity: 0.45; }
-
-  .thinking-tag { color: #a78bfa; font-style: italic; font-size: 0.8rem; }
-
-  /* ====== AI 思考阶段指示器（SSE status 事件驱动） ====== */
-  .cm-status-box {
-    display: flex; flex-direction: column; gap: 4px;
-    margin-bottom: 8px; padding: 8px 10px; border-radius: 10px;
-    background: rgba(99,102,241,.08); border: 1px solid rgba(99,102,241,.22);
-  }
-  .cm-status-item { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #a5b4fc; }
-  .cm-status-item.done { color: #64748b; }
-  .cm-status-spinner {
-    width: 11px; height: 11px; flex-shrink: 0; border-radius: 50%;
-    border: 2px solid rgba(165,180,252,.3); border-top-color: #a5b4fc;
-    animation: cm-spin .7s linear infinite;
-  }
-  .cm-status-item.done .cm-status-spinner {
-    border: none; animation: none; width: auto; height: auto;
-    color: #34d399; font-size: 11px; line-height: 1;
-  }
-  @keyframes cm-spin { to { transform: rotate(360deg); } }
-  .cm-status-summary { margin-bottom: 8px; font-size: 11px; color: #818cf8; }
-  .cm-status-summary > summary { cursor: pointer; list-style: none; user-select: none; }
-  .cm-status-summary > summary::-webkit-details-marker { display: none; }
-  .cm-status-summary > summary::before { content: '▸ '; }
-  .cm-status-summary[open] > summary::before { content: '▾ '; }
-
-  .typing-cursor::after { content: '▍'; animation: blink 1s infinite; color: #a5f3fc; }
-  @keyframes blink { 0%, 50% { opacity: 1; } 51%, 100% { opacity: 0; } }
-
-  /* ====== 顶部 Tab 按钮底部指示线 ====== */
-  .tab-btn { position: relative; }
-  .tab-btn::after {
-    content: '';
-    position: absolute;
-    bottom: -2px; left: 50%; transform: translateX(-50%);
-    width: 0; height: 2px;
-    background: linear-gradient(90deg, #6366f1, #a855f7);
-    border-radius: 1px;
-    transition: width 0.25s ease-out;
-  }
-  .tab-btn.active::after { width: 22px; }
-
-  /* ====== 图表标题左侧色条装饰 ====== */
-  .chart-title { display: flex; align-items: center; gap: 0.5rem; font-size: 0.875rem; font-weight: 500; margin-bottom: 0.75rem; }
-  .chart-title::before { content: ''; width: 3px; height: 16px; border-radius: 2px; background: currentColor; }
-  .chart-indigo { color: #c7d2fe; }
-  .chart-rose { color: #fda4af; }
-  .chart-amber { color: #fcd34d; }
-  .chart-emerald { color: #6ee7b7; }
-
-  /* ====== 图谱加载骨架屏 ====== */
-  .graph-loading {
-    position: absolute; inset: 0;
-    display: flex; align-items: center; justify-content: center;
-    background: rgba(15, 23, 42, 0.85);
-    backdrop-filter: blur(4px);
-    z-index: 5;
-    border-radius: inherit;
-  }
-  .graph-spinner {
-    width: 36px; height: 36px;
-    border: 3px solid rgba(99,102,241,0.25);
-    border-top-color: #6366f1;
-    border-radius: 50%;
-    animation: spin 0.8s linear infinite;
-  }
-  @keyframes spin { to { transform: rotate(360deg); } }
-
-  .tool-badge { background: rgba(99,102,241,0.15); border: 1px solid #6366f1; color: #a5b4fc; border-radius: 999px; padding: 0.15rem 0.6rem; font-size: 0.7rem; display: inline-block; margin: 0.25rem 0; }
-
-  .pulse-dot { width: 8px; height: 8px; border-radius: 50%; background: #10b981; animation: pulse 2s infinite; display: inline-block; }
-  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
-
-  /* ====== 消息气泡 hover 增强 ====== */
-  .chat-msg-wrap { position: relative; }
-  .chat-msg-wrap .msg-meta {
-    position: absolute; bottom: -18px;
-    font-size: 10px; color: #64748b;
-    opacity: 0; transition: opacity 0.2s;
-    white-space: nowrap;
-  }
-  .chat-msg-wrap.user .msg-meta { right: 40px; }
-  .chat-msg-wrap.assistant .msg-meta { left: 40px; }
-  .chat-msg-wrap:hover .msg-meta { opacity: 1; }
-
-  /* 欢迎语卡片 */
-  .welcome-card {
-    background: linear-gradient(135deg, rgba(99,102,241,0.12), rgba(168,85,247,0.08));
-    border: 1px solid rgba(99,102,241,0.25);
-    border-radius: 16px;
-    padding: 16px 18px;
-    margin-bottom: 12px;
-    cursor: pointer;
-    transition: all 0.2s;
-  }
-  .welcome-card:hover { border-color: rgba(99,102,241,0.5); }
-  .welcome-card .welcome-title { display: flex; align-items: center; gap: 10px; font-weight: 600; color: #e2e8f0; margin-bottom: 4px; }
-  .welcome-card .welcome-arrow {
-    margin-left: auto; font-size: 10px; color: #818cf8;
-    transition: transform 0.25s ease; display: inline-block;
-    width: 18px; height: 18px; line-height: 18px; text-align: center;
-    border-radius: 50%; background: rgba(99,102,241,0.15);
-  }
-  .welcome-card.expanded .welcome-arrow { transform: rotate(180deg); }
-  .welcome-card .welcome-body { color: #94a3b8; font-size: 13px; line-height: 1.7; overflow: hidden; transition: max-height 0.3s ease; }
-  .welcome-card .welcome-body.collapsed { max-height: 22px; }
-  .welcome-card .welcome-body.expanded { max-height: 420px; }
-  .welcome-card .welcome-body ul { margin: 4px 0 0 16px; padding: 0; }
-  .welcome-card .welcome-body li { margin: 2px 0; }
-  .welcome-card .welcome-toggle {
-    display: inline-block; margin-top: 8px;
-    font-size: 11px; color: #a5b4fc;
-    background: rgba(99,102,241,0.12); border: 1px solid rgba(99,102,241,0.3);
-    border-radius: 999px; padding: 2px 10px;
-    transition: all 0.2s; user-select: none;
-  }
-  .welcome-card .welcome-toggle:hover { background: rgba(99,102,241,0.25); color: #e0e7ff; }
-
-
-  /* Tab 切换淡入 */
-  .tab-panel { animation: fadeIn 0.25s ease-out; }
-  @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
-
-  /* 快捷问题胶囊 */
-  .quick-chip { transition: all 0.2s cubic-bezier(.4,0,.2,1); }
-  .quick-chip:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(99,102,241,0.25); }
-
-  /* 统计数字动画 */
-  .stat-num { font-variant-numeric: tabular-nums; }
-  .stat-card { transition: all 0.2s ease; }
-  .stat-card:hover { transform: translateY(-2px); border-color: rgba(99,102,241,0.5); }
-
-  /* 消息气泡进场 */
-  .chat-msg { animation: slideUp 0.3s ease-out; }
-  @keyframes slideUp { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
-
-  /* 登录弹窗进场 */
-  .modal-fade-in { animation: modalIn 0.2s ease-out; }
-  @keyframes modalIn { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
-
-  /* ====== 语音提问按钮 ====== */
-  #voice-btn { transition: all 0.2s; }
-  #voice-btn.voice-on {
-    background: rgba(244,63,94,0.18);
-    border-color: rgba(244,63,94,0.6);
-    color: #fda4af;
-    animation: voicePulse 1.2s ease-in-out infinite;
-  }
-  @keyframes voicePulse {
-    0%, 100% { box-shadow: 0 0 0 0 rgba(244,63,94,0.45); }
-    50%      { box-shadow: 0 0 0 8px rgba(244,63,94,0); }
-  }
-
-  /* ====== 响应式适配（平板 / 窄屏） ====== */
-  @media (max-width: 1024px) {
-    .topbar { flex-wrap: wrap; row-gap: 8px; }
-    .header-right { flex-wrap: wrap; gap: 6px; width: 100%; justify-content: center; }
-    .header-right .tab-btn { padding: 4px 10px; font-size: 12px; }
-    #api-status { display: none; }                 /* 窄屏隐藏连接状态徽章，把空间让给 Tab */
-    #panel-chat { height: calc(100vh - 250px); min-height: 440px; }
-  }
-
-  @media (max-width: 768px) {
-    main { padding: 8px; }
-    #chat-messages { padding: 10px; }
-    .prose-cm { font-size: 0.9rem; }
-    #graph-svg { min-height: 340px; }
-    #user-input { font-size: 14px; }
-    .msg-meta { display: none; }                   /* 窄屏隐藏 hover 元信息，避免挤压气泡 */
-  }
-</style>
+<!-- 设计系统 -->
+<link rel="stylesheet" href="./css/theme.css">
 </head>
-<body class="text-slate-100">
+<body>
+
+<!-- ============ 图标库（线性 1.5px） ============ -->
+<svg xmlns="http://www.w3.org/2000/svg" style="display:none" aria-hidden="true">
+  <symbol id="i-settings" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.9 4.9 7 7M17 17l2.1 2.1M2 12h3M19 12h3M4.9 19.1 7 17M17 7l2.1-2.1"/></symbol>
+  <symbol id="i-arrow-right" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="m13 6 6 6-6 6"/></symbol>
+  <symbol id="i-spark" viewBox="0 0 24 24"><path d="m12 3 1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8L12 3Z"/></symbol>
+  <symbol id="i-file" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/><path d="M8 13h8M8 17h8"/></symbol>
+  <symbol id="i-book" viewBox="0 0 24 24"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2Z"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></symbol>
+  <symbol id="i-mic" viewBox="0 0 24 24"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10a7 7 0 0 0 14 0"/><path d="M12 19v3"/></symbol>
+  <symbol id="i-send" viewBox="0 0 24 24"><path d="M22 2 11 13"/><path d="m22 2-7 20-4-9-9-4Z"/></symbol>
+  <symbol id="i-code" viewBox="0 0 24 24"><path d="m8 8-4 4 4 4M16 8l4 4-4 4M14 4l-4 16"/></symbol>
+  <symbol id="i-image" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="m6 3 14 9-14 9V3Z"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="m4 12 5 5L20 6"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></symbol>
+  <symbol id="i-key" viewBox="0 0 24 24"><circle cx="7.5" cy="15.5" r="4.5"/><path d="m10.5 12.5 9-9"/><path d="m16 5 3 3"/><path d="m13 8 3 3"/></symbol>
+  <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></symbol>
+  <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 21V9"/><path d="m7 14 5-5 5 5"/><path d="M5 3h14"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 24 24"><path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M10 11v6M14 11v6"/></symbol>
+  <symbol id="i-lightbulb" viewBox="0 0 24 24"><path d="M9 18h6"/><path d="M10 22h4"/><path d="M12 2a7 7 0 0 0-4 12.7V17h8v-2.3A7 7 0 0 0 12 2Z"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/></symbol>
+  <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></symbol>
+  <symbol id="i-copy" viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+  <symbol id="i-target" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></symbol>
+  <symbol id="i-link" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7 0l2-2a5 5 0 0 0-7-7l-1 1"/><path d="M14 11a5 5 0 0 0-7 0l-2 2a5 5 0 0 0 7 7l1-1"/></symbol>
+  <symbol id="i-chevron-down" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-graph" viewBox="0 0 24 24"><circle cx="6" cy="6" r="2"/><circle cx="18" cy="6" r="2"/><circle cx="12" cy="18" r="2"/><path d="m7.7 7 3 8M16.3 7l-3 8"/></symbol>
+  <symbol id="i-chart" viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></symbol>
+  <symbol id="i-chat" viewBox="0 0 24 24"><path d="M21 12a8 8 0 0 1-8 8H5l-2 2V7a3 3 0 0 1 3-3h7a8 8 0 0 1 8 8Z"/><path d="M8 10h.01M12 10h.01M16 10h.01"/></symbol>
+  <symbol id="i-practice" viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></symbol>
+</svg>
 
 <!-- ============ 顶栏 ============ -->
-<header class="border-b border-slate-700/50 backdrop-blur bg-slate-900/50 sticky top-0 z-50">
-  <div class="max-w-[1600px] mx-auto px-4 py-3 flex items-center justify-between topbar">
-    <div class="flex items-center gap-3">
-      <div class="w-9 h-9 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center font-bold text-white">C</div>
+<header class="site-header">
+  <div class="header-inner">
+    <div class="brand">
+      <div class="brand-mark" aria-hidden="true">C</div>
       <div>
-        <h1 class="text-lg font-bold tracking-tight">CodeMentor</h1>
-        <p class="text-[11px] text-slate-400">Agent + GraphRAG 智能助学平台</p>
+        <h1 class="brand-title">CodeMentor</h1>
+        <p class="brand-sub">计算机助学 · 本地优先</p>
       </div>
     </div>
-    <div class="flex items-center gap-4 text-sm header-right">
-      <span id="api-status" class="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs bg-slate-800/70 border border-slate-600/50">
-        <span class="pulse-dot"></span>
-        <span>连接中...</span>
-      </span>
-      <button onclick="switchTab('chat')" id="tab-chat" class="tab-btn px-3 py-1 rounded-md bg-indigo-600 text-white text-sm active">💬 对话</button>
-      <button onclick="switchTab('practice')" id="tab-practice" class="tab-btn px-3 py-1 rounded-md bg-slate-700/70 text-slate-300 text-sm hover:bg-slate-600">📝 练一练</button>
-      <button onclick="switchTab('graph')" id="tab-graph" class="tab-btn px-3 py-1 rounded-md bg-slate-700/70 text-slate-300 text-sm hover:bg-slate-600">🗺️ 图谱</button>
-      <button onclick="switchTab('teacher')" id="tab-teacher" class="tab-btn px-3 py-1 rounded-md bg-slate-700/70 text-slate-300 text-sm hover:bg-slate-600">📊 学情</button>
-      <!-- 用户区 -->
-      <span id="user-chip" class="hidden items-center gap-2 px-2.5 py-1 rounded-full text-xs bg-indigo-500/15 border border-indigo-400/30 text-indigo-300"></span>
-      <button id="btn-login" onclick="openLogin()" class="px-3 py-1 rounded-md bg-emerald-600 text-white text-sm hover:bg-emerald-500">登录</button>
-      <button id="btn-logout" onclick="doLogout()" class="hidden px-2.5 py-1 rounded-md bg-slate-700/70 text-slate-300 text-xs hover:bg-slate-600">退出</button>
+    <div class="header-right">
+      <nav class="tabs" aria-label="主导航">
+        <button onclick="switchTab('chat')" id="tab-chat" class="tab-btn active">对话</button>
+        <button onclick="switchTab('practice')" id="tab-practice" class="tab-btn">练一练</button>
+        <button onclick="switchTab('graph')" id="tab-graph" class="tab-btn">图谱</button>
+        <button onclick="switchTab('teacher')" id="tab-teacher" class="tab-btn">学情</button>
+      </nav>
+      <div class="header-actions">
+        <span id="api-status" class="api-status" data-status="connecting">
+          <span class="status-dot"></span>
+          <span>连接中</span>
+        </span>
+        <span id="user-chip" class="user-chip hidden"></span>
+        <button id="btn-settings" onclick="openSettings()" title="配置你自己的远程 API Key（只保存在浏览器）" class="btn btn-ghost btn-sm">
+          <svg class="cm-icon cm-icon-sm" aria-hidden="true"><use href="#i-settings"></use></svg>
+          <span id="settings-btn-label">配置模型</span>
+        </button>
+        <button id="btn-login" onclick="openLogin()" class="btn btn-primary btn-sm">登录</button>
+        <button id="btn-logout" onclick="doLogout()" class="btn btn-quiet btn-sm hidden">退出</button>
+      </div>
     </div>
   </div>
 </header>
 
-<main class="max-w-[1600px] mx-auto p-4 grid grid-cols-1 lg:grid-cols-12 gap-4">
+<main class="cm-main">
 
-  <!-- ============ 左侧：对话区 ============ -->
-  <section class="lg:col-span-8 space-y-4">
+  <!-- ============ 左侧：主工作区 ============ -->
+  <section class="cm-content">
 
-    <!-- 对话主界面 -->
-    <div id="panel-chat" class="tab-panel bg-slate-800/50 rounded-2xl border border-slate-700/50 backdrop-blur flex flex-col" style="height:calc(100vh - 180px); min-height:520px;">
-      <!-- 消息流（flex-1 自动填充 + 内部独立滚动） -->
-      <div id="chat-messages" class="flex-1 min-h-0 overflow-y-auto p-4 space-y-4">
-        <!-- 欢迎卡片：4 项核心能力，点一下直接示例提问（首次发消息后自动隐藏） -->
-        <div id="chat-welcome" class="max-w-2xl mx-auto py-6">
-          <div class="text-center mb-5">
-            <div class="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-gradient-to-br from-indigo-500/25 to-purple-500/25 border border-indigo-500/30 mb-3">
-              <span class="text-2xl">🎓</span>
-            </div>
-            <h2 class="text-lg font-semibold mb-1">我是 CodeMentor，你的 AI 计算机助教</h2>
-            <p class="text-xs text-slate-400">不直接给答案，而是调用工具帮你把问题想明白 · 点下面的卡片立刻体验</p>
-          </div>
-          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <button onclick="startFromCard('什么是红黑树？它和 AVL 树有什么区别？')" class="welcome-card group text-left p-3.5 rounded-xl bg-slate-900/60 border border-slate-700/60 hover:border-indigo-500/60 hover:bg-indigo-500/10 transition">
-              <div class="flex items-center gap-2 mb-1"><span class="text-lg">📚</span><span class="font-medium text-sm">知识问答</span></div>
-              <p class="text-[11px] text-slate-400 leading-relaxed">概念、原理、复杂度辨析<br><span class="text-slate-500">红黑树 vs AVL</span></p>
+    <!-- ==================== 对话 ==================== -->
+    <div id="panel-chat" class="tab-panel cm-panel">
+      <div id="chat-messages">
+        <div id="chat-welcome" class="chat-welcome">
+          <div class="welcome-kicker">The quiet study · 计算机助学</div>
+          <h2 class="welcome-title">我是 <em>CodeMentor</em>，<br>陪你把问题想明白。</h2>
+          <p class="welcome-sub">不直接给答案，而是调用工具、拆解思路、陪你一步步走到结论。选一个入口开始。</p>
+
+          <div class="welcome-list">
+            <button onclick="startFromCard('什么是红黑树？它和 AVL 树有什么区别？')" class="welcome-card">
+              <span class="welcome-num">01</span>
+              <span class="welcome-body">
+                <span class="welcome-card-title">知识问答</span>
+                <span class="welcome-card-desc">概念、原理与复杂度辨析 · 红黑树 vs AVL</span>
+              </span>
+              <svg class="cm-icon welcome-arrow" aria-hidden="true"><use href="#i-arrow-right"></use></svg>
             </button>
-            <button onclick="startFromCard('帮我分析这段代码的时间复杂度，并找出可能的 bug')" class="welcome-card group text-left p-3.5 rounded-xl bg-slate-900/60 border border-slate-700/60 hover:border-emerald-500/60 hover:bg-emerald-500/10 transition">
-              <div class="flex items-center gap-2 mb-1"><span class="text-lg">🐞</span><span class="font-medium text-sm">代码调试</span></div>
-              <p class="text-[11px] text-slate-400 leading-relaxed">粘贴代码 → 沙箱运行 + AST 分析<br><span class="text-slate-500">定位死循环 / 复杂度</span></p>
+            <button onclick="startFromCard('帮我分析这段代码的时间复杂度，并找出可能的 bug')" class="welcome-card">
+              <span class="welcome-num">02</span>
+              <span class="welcome-body">
+                <span class="welcome-card-title">代码调试</span>
+                <span class="welcome-card-desc">粘贴代码 → 沙箱运行与 AST 分析 · 定位死循环与复杂度</span>
+              </span>
+              <svg class="cm-icon welcome-arrow" aria-hidden="true"><use href="#i-arrow-right"></use></svg>
             </button>
-            <button onclick="startFromCard('出一道关于快速排序的编程题，并给我提示')" class="welcome-card group text-left p-3.5 rounded-xl bg-slate-900/60 border border-slate-700/60 hover:border-amber-500/60 hover:bg-amber-500/10 transition">
-              <div class="flex items-center gap-2 mb-1"><span class="text-lg">📝</span><span class="font-medium text-sm">出题练习</span></div>
-              <p class="text-[11px] text-slate-400 leading-relaxed">按知识点生成题目并批改<br><span class="text-slate-500">选择 / 判断 / 编程</span></p>
+            <button onclick="startFromCard('出一道关于快速排序的编程题，并给我提示')" class="welcome-card">
+              <span class="welcome-num">03</span>
+              <span class="welcome-body">
+                <span class="welcome-card-title">出题练习</span>
+                <span class="welcome-card-desc">按知识点生成题目并批改 · 选择 / 判断 / 编程</span>
+              </span>
+              <svg class="cm-icon welcome-arrow" aria-hidden="true"><use href="#i-arrow-right"></use></svg>
             </button>
-            <button onclick="startFromCard('根据我的学情，推荐一条从基础到进阶的学习路径')" class="welcome-card group text-left p-3.5 rounded-xl bg-slate-900/60 border border-slate-700/60 hover:border-violet-500/60 hover:bg-violet-500/10 transition">
-              <div class="flex items-center gap-2 mb-1"><span class="text-lg">🧭</span><span class="font-medium text-sm">学习规划</span></div>
-              <p class="text-[11px] text-slate-400 leading-relaxed">结合 BKT 掌握度 + 图谱前置关系<br><span class="text-slate-500">下一步该学什么</span></p>
+            <button onclick="startFromCard('根据我的学情，推荐一条从基础到进阶的学习路径')" class="welcome-card">
+              <span class="welcome-num">04</span>
+              <span class="welcome-body">
+                <span class="welcome-card-title">学习规划</span>
+                <span class="welcome-card-desc">结合 BKT 掌握度与图谱前置关系 · 下一步该学什么</span>
+              </span>
+              <svg class="cm-icon welcome-arrow" aria-hidden="true"><use href="#i-arrow-right"></use></svg>
             </button>
           </div>
         </div>
       </div>
 
       <!-- 代码折叠 -->
-      <div id="code-panel" class="border-t border-slate-700/50 hidden">
-        <div class="flex items-center justify-between px-4 py-2 bg-slate-800/80">
-          <span class="text-xs text-slate-400 flex items-center gap-2">
-            <span class="w-2 h-2 rounded-full bg-amber-400"></span>
-            📝 附加代码（可选） — 提交代码问题时自动分析
+      <div id="code-panel" class="code-panel hidden">
+        <div class="code-panel-head">
+          <span class="flex items-center gap-2">
+            <svg class="cm-icon cm-icon-sm" aria-hidden="true"><use href="#i-code"></use></svg>
+            附加代码（可选）— 提交代码问题时自动分析
           </span>
           <div class="flex gap-2">
-            <button onclick="runCode()" class="text-xs px-2 py-1 rounded bg-emerald-600 hover:bg-emerald-500">▶ 沙箱运行</button>
-            <button onclick="analyzeCode()" class="text-xs px-2 py-1 rounded bg-indigo-600 hover:bg-indigo-500">🔍 AST 分析</button>
-            <button onclick="clearCode()" class="text-xs px-2 py-1 rounded bg-slate-600 hover:bg-slate-500">清除</button>
+            <button onclick="runCode()" class="btn btn-ghost btn-xs">
+              <svg class="cm-icon cm-icon-sm" aria-hidden="true"><use href="#i-play"></use></svg>运行
+            </button>
+            <button onclick="analyzeCode()" class="btn btn-ghost btn-xs">
+              <svg class="cm-icon cm-icon-sm" aria-hidden="true"><use href="#i-search"></use></svg>AST 分析
+            </button>
+            <button onclick="clearCode()" class="btn btn-quiet btn-xs">清除</button>
           </div>
         </div>
-        <textarea id="code-input" placeholder="# 在这里粘贴你的 Python 代码\n# 例如：你写的快速排序..."
-          class="w-full h-40 p-3 bg-slate-900 text-emerald-200 font-mono text-sm resize-none outline-none border-t border-slate-700" spellcheck="false"></textarea>
-        <div id="code-output" class="bg-slate-950 text-xs p-3 max-h-28 overflow-auto font-mono border-t border-slate-700 text-slate-300 hidden"></div>
+        <textarea id="code-input" placeholder="# 在这里粘贴你的 Python 代码&#10;# 例如：你写的快速排序..." class="code-editor w-full h-40 p-3 resize-none outline-none" spellcheck="false"></textarea>
+        <div id="code-output" class="hidden max-h-28 overflow-auto p-3 text-xs"></div>
       </div>
 
-      <!-- 输入区（sticky 吸底） -->
-      <div class="border-t border-slate-700/50 p-3 bg-slate-800/30 flex-shrink-0">
-        <!-- 快捷操作栏（仅对话 Tab 显示） -->
-        <div data-tabs="chat" class="flex gap-2 mb-2 text-xs flex-wrap items-center">
-          <button onclick="toggleCodePanel()" class="px-2 py-1 rounded bg-slate-700/70 text-slate-300 hover:bg-slate-600">📎 附加代码</button>
-          <button onclick="document.getElementById('img-upload').click()" class="px-2 py-1 rounded bg-slate-700/70 text-slate-300 hover:bg-slate-600">🖼️ 截图提问</button>
+      <!-- 输入区 -->
+      <div class="composer">
+        <div data-tabs="chat" class="composer-tools">
+          <button onclick="toggleCodePanel()" class="tool-link">
+            <svg class="cm-icon cm-icon-sm" aria-hidden="true"><use href="#i-code"></use></svg>附加代码
+          </button>
+          <button onclick="document.getElementById('img-upload').click()" class="tool-link">
+            <svg class="cm-icon cm-icon-sm" aria-hidden="true"><use href="#i-image"></use></svg>截图提问
+          </button>
           <input type="file" id="img-upload" accept="image/*" class="hidden" onchange="uploadImage(event)">
-          <span class="text-slate-500 px-2 py-1">|</span>
-          <button onclick="sendQuick('什么是红黑树？')" class="quick-chip px-2.5 py-1 rounded-full bg-slate-700/50 text-slate-400 hover:text-indigo-300 border border-slate-600/50 text-xs">🔖 什么是红黑树？</button>
-          <button onclick="sendQuick('快速排序为什么会超时？')" class="quick-chip px-2.5 py-1 rounded-full bg-slate-700/50 text-slate-400 hover:text-indigo-300 border border-slate-600/50 text-xs">🔖 快排超时排查</button>
-          <button onclick="sendQuick('图论我应该先学什么？')" class="quick-chip px-2.5 py-1 rounded-full bg-slate-700/50 text-slate-400 hover:text-indigo-300 border border-slate-600/50 text-xs">🔖 学习路径推荐</button>
-          <button onclick="sendQuick('请总结一下动态规划的核心思想')" class="quick-chip px-2.5 py-1 rounded-full bg-slate-700/50 text-slate-400 hover:text-indigo-300 border border-slate-600/50 text-xs">🔖 动态规划核心</button>
-          <button onclick="sendQuick('帮我分析这段代码的时间复杂度')" class="quick-chip px-2.5 py-1 rounded-full bg-slate-700/50 text-slate-400 hover:text-indigo-300 border border-slate-600/50 text-xs">🔖 代码复杂度分析</button>
+          <span class="composer-divider"></span>
+          <button onclick="sendQuick('什么是红黑树？')" class="quick-chip">什么是红黑树？</button>
+          <button onclick="sendQuick('快速排序为什么会超时？')" class="quick-chip">快排超时排查</button>
+          <button onclick="sendQuick('图论我应该先学什么？')" class="quick-chip">学习路径推荐</button>
+          <button onclick="sendQuick('请总结一下动态规划的核心思想')" class="quick-chip">动态规划核心</button>
         </div>
-        <div class="flex gap-2">
+        <div class="composer-row">
           <textarea id="user-input" rows="2" placeholder="问我任何计算机知识 — 理论、代码、算法... 我会调用工具帮你"
-            class="flex-1 p-3 bg-slate-900 rounded-xl border border-slate-600/50 text-slate-100 placeholder-slate-500 resize-none outline-none focus:border-indigo-500 text-sm"
+            class="resize-none outline-none"
             onkeydown="if(event.key==='Enter' && !event.shiftKey){event.preventDefault();sendMessage();}"></textarea>
-          <button onclick="toggleVoiceInput()" id="voice-btn" title="语音提问（Chrome / Edge，需允许麦克风）"
-            class="px-4 py-3 rounded-xl bg-slate-700/60 hover:bg-slate-600 text-slate-300 border border-slate-600/50">🎤</button>
-          <button onclick="sendMessage()" id="send-btn" class="px-6 py-3 rounded-xl bg-gradient-to-br from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 font-medium transition disabled:opacity-50">
-            发送 ➤
+          <button onclick="toggleVoiceInput()" id="voice-btn" title="语音提问（Chrome / Edge，需允许麦克风）" class="icon-btn">
+            <svg class="cm-icon" aria-hidden="true"><use href="#i-mic"></use></svg>
+          </button>
+          <button onclick="sendMessage()" id="send-btn" class="flex items-center justify-center gap-2">
+            <svg class="cm-icon" aria-hidden="true"><use href="#i-send"></use></svg>
+            <span>发送</span>
           </button>
         </div>
       </div>
     </div>
 
-    <!-- 练一练 Tab -->
-    <div id="panel-practice" class="tab-panel bg-slate-800/50 rounded-2xl border border-slate-700/50 overflow-hidden backdrop-blur hidden">
-      <div class="p-4 border-b border-slate-700/50">
-        <h2 class="font-semibold mb-2">📝 AI 智能出题 + 双轨批改</h2>
-        <div class="flex flex-wrap gap-2 items-center">
-          <select id="exam-concept" class="bg-slate-900 border border-slate-600 rounded-lg px-3 py-1.5 text-sm"></select>
-          <select id="exam-type" class="bg-slate-900 border border-slate-600 rounded-lg px-3 py-1.5 text-sm">
+    <!-- ==================== 练一练 ==================== -->
+    <div id="panel-practice" class="tab-panel cm-panel hidden">
+      <!-- 学生：老师布置的统一作业 -->
+      <div id="student-assignments-box" class="section-block">
+        <div class="flex items-center justify-between gap-3 mb-3">
+          <div>
+            <div class="eyebrow">Assignments</div>
+            <h2 class="panel-title">我的作业</h2>
+          </div>
+          <button onclick="loadStudentAssignments()" class="btn btn-quiet btn-sm">刷新</button>
+        </div>
+        <div id="student-assignment-list" class="space-y-2">
+          <p class="text-xs text-slate-500">登录后查看老师布置的统一作业。</p>
+        </div>
+        <div class="flex flex-wrap items-center gap-2 mt-3">
+          <input id="class-join-code" placeholder="输入班级邀请码加入" maxlength="12"
+            class="px-3 py-1.5 text-xs uppercase" style="max-width:220px">
+          <button onclick="joinClassUI()" class="btn btn-ghost btn-sm">加入班级</button>
+          <span id="class-join-msg" class="hidden text-xs"></span>
+        </div>
+      </div>
+
+      <div class="section-block">
+        <div class="eyebrow">Practice</div>
+        <h2 class="panel-title">AI 个性化练习</h2>
+        <p class="panel-sub">出题与判题走冻结的判题方案；不依赖服务端 Key 也能完成老师布置的作业。</p>
+        <div class="field-row mt-4">
+          <select id="exam-concept" class="text-sm"></select>
+          <select id="exam-type" class="text-sm">
             <option value="any">任意题型</option>
             <option value="choice">选择题</option>
             <option value="judge">判断题</option>
             <option value="code">编程题</option>
           </select>
-          <select id="exam-difficulty" class="bg-slate-900 border border-slate-600 rounded-lg px-3 py-1.5 text-sm" title="难度">
-            <option value="easy">🟢 简单</option>
-            <option value="medium" selected>🟡 中等</option>
-            <option value="hard">🔴 困难</option>
+          <select id="exam-difficulty" class="text-sm" title="难度">
+            <option value="easy">简单</option>
+            <option value="medium" selected>中等</option>
+            <option value="hard">困难</option>
           </select>
-          <button id="btn-gen-question" onclick="generateQuestion(this)" class="px-5 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-sm font-medium shadow-lg shadow-indigo-600/30 transition">🎲 生成题目</button>
-          <button id="btn-gen-paper" onclick="generatePaper(this)" class="px-3 py-1.5 rounded-lg bg-transparent border border-violet-500/30 text-violet-300 hover:bg-violet-500/10 text-xs transition">📄 生成试卷</button>
-          <button onclick="loadRetryQuestions()" class="px-3 py-1.5 rounded-lg bg-transparent border border-rose-500/30 text-rose-300 hover:bg-rose-500/10 text-xs transition">📕 错题重做</button>
+          <button id="btn-gen-question" onclick="generateQuestion(this)" class="btn btn-primary">
+            <svg class="cm-icon cm-icon-sm" aria-hidden="true"><use href="#i-spark"></use></svg>生成题目
+          </button>
+          <button id="btn-gen-paper" onclick="generatePaper(this)" class="btn btn-ghost btn-sm">
+            <svg class="cm-icon cm-icon-sm" aria-hidden="true"><use href="#i-file"></use></svg>生成试卷
+          </button>
+          <button onclick="loadRetryQuestions()" class="btn btn-ghost btn-sm">
+            <svg class="cm-icon cm-icon-sm" aria-hidden="true"><use href="#i-book"></use></svg>错题重做
+          </button>
         </div>
       </div>
-      <div class="p-4 max-h-[calc(100vh-380px)] overflow-y-auto space-y-4">
-        <div id="exam-question" class="hidden bg-slate-900/50 rounded-xl p-4 border border-slate-700/50">
+
+      <div class="section-block">
+        <div id="exam-question" class="question-card hidden">
           <div id="paper-progress" class="hidden mb-3 flex items-center justify-between text-xs text-slate-400">
             <span id="paper-progress-text">第 1 / 5 题</span>
-            <button onclick="nextPaperQuestion()" id="paper-next-btn" class="hidden px-3 py-1 rounded bg-emerald-600 hover:bg-emerald-500 text-white">下一题 →</button>
+            <button onclick="nextPaperQuestion()" id="paper-next-btn" class="btn btn-ghost btn-xs hidden">下一题<svg class="cm-icon cm-icon-sm" aria-hidden="true"><use href="#i-arrow-right"></use></svg></button>
           </div>
-          <div class="flex items-center gap-2 mb-2">
-            <span id="exam-type-badge" class="text-xs px-2 py-0.5 rounded bg-indigo-600/30 text-indigo-300"></span>
-            <span id="exam-concept-badge" class="text-xs px-2 py-0.5 rounded bg-slate-700 text-slate-400"></span>
+          <div class="question-meta">
+            <span id="exam-type-badge" class="tag tag-accent"></span>
+            <span id="exam-concept-badge" class="tag"></span>
           </div>
-          <div id="exam-question-text" class="text-slate-100 mb-3"></div>
-          <div id="exam-options" class="space-y-1.5 mb-3"></div>
-          <div id="exam-hint" class="hidden text-xs text-amber-300/80 bg-amber-500/10 rounded p-2 mb-3"></div>
+          <div id="exam-question-text" class="question-text"></div>
+          <div id="exam-options" class="option-list mb-3"></div>
+          <div id="exam-hint" class="hint-box hidden mb-3"></div>
           <div id="exam-code-area" class="hidden">
-            <textarea id="exam-student-code" placeholder="# 在这里写你的答案..."
-              class="w-full h-44 p-3 bg-slate-950 text-emerald-200 font-mono text-sm resize-none outline-none rounded-lg border border-slate-700" spellcheck="false"></textarea>
+            <textarea id="exam-student-code" placeholder="# 在这里写你的答案..." class="code-editor w-full h-44 p-3 resize-none outline-none" spellcheck="false"></textarea>
             <div class="mt-3 flex flex-wrap items-center gap-2">
-              <button id="btn-grade-question" onclick="gradeQuestion(this)" class="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-medium text-sm shadow-lg shadow-emerald-600/25 transition">✅ 提交批改</button>
-              <button onclick="showHint()" class="px-4 py-2 rounded-lg bg-transparent border border-amber-500/40 text-amber-300 hover:bg-amber-500/10 text-sm transition">💡 查看提示</button>
-              <button onclick="checkPep8()" class="px-4 py-2 rounded-lg bg-transparent border border-sky-500/40 text-sky-300 hover:bg-sky-500/10 text-sm transition">🔍 PEP8 检查</button>
-              <span class="text-[10px] text-slate-500 ml-auto">Ctrl + Enter 提交 · Tab 缩进</span>
+              <button id="btn-grade-question" onclick="gradeQuestion(this)" class="btn btn-primary btn-sm">
+                <svg class="cm-icon cm-icon-sm" aria-hidden="true"><use href="#i-check"></use></svg>提交批改
+              </button>
+              <button onclick="showHint()" class="btn btn-ghost btn-sm">
+                <svg class="cm-icon cm-icon-sm" aria-hidden="true"><use href="#i-lightbulb"></use></svg>查看提示
+              </button>
+              <button onclick="checkPep8()" class="btn btn-ghost btn-sm">
+                <svg class="cm-icon cm-icon-sm" aria-hidden="true"><use href="#i-search"></use></svg>PEP8 检查
+              </button>
+              <span class="footnote ml-auto">Ctrl + Enter 提交 · Tab 缩进</span>
             </div>
-            <div id="pep8-result" class="hidden mt-2 text-xs rounded-lg p-2 border"></div>
+            <div id="pep8-result" class="hidden mt-2 text-xs p-2 border"></div>
           </div>
         </div>
+
         <div id="exam-result" class="hidden space-y-3"></div>
         <div id="retry-list" class="hidden space-y-2"></div>
-        <div id="exam-empty" class="text-center py-10 px-6">
-          <div class="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-br from-indigo-500/20 to-purple-500/20 border border-indigo-500/30 mb-4">
-            <span class="text-3xl">📝</span>
-          </div>
-          <p class="text-slate-300 font-medium mb-1">准备好开始练习了吗？</p>
-          <p class="text-xs text-slate-500 mb-5">选择一个知识点，AI 会为你生成题目 · 双轨批改给出反馈</p>
 
-          <!-- 新手入门路径：从基础到进阶，一键开练 -->
-          <div class="max-w-xl mx-auto mb-6 text-left">
-            <p class="text-xs text-slate-400 mb-2 text-center">🌱 新手入门路径 · 按「基础 → 进阶」顺序练</p>
-            <div class="grid grid-cols-3 gap-2">
-              <button onclick="startBeginner('数组','easy')" class="group p-3 rounded-xl bg-slate-900/60 border border-emerald-500/25 hover:border-emerald-400/60 hover:bg-emerald-500/10 transition">
-                <div class="text-xs text-emerald-300 font-medium mb-0.5">① 数组</div>
-                <div class="text-[10px] text-slate-500">基础 · 简单</div>
+        <div id="exam-empty" class="empty-state">
+          <div class="eyebrow">Start here</div>
+          <p class="empty-title mt-2">准备开始了吗？</p>
+          <p class="empty-sub">选择一个知识点，AI 会为你生成题目，并按冻结的判题方案给出反馈。</p>
+
+          <div class="beginner-path mt-8">
+            <p class="text-[11px] text-slate-500 mb-2">新手入门路径 · 按「基础 → 进阶」顺序练</p>
+            <div class="beginner-grid">
+              <button onclick="startBeginner('数组','easy')" class="beginner-item">
+                <div class="bi-title">01 · 数组</div>
+                <div class="bi-sub">基础 · 简单</div>
               </button>
-              <button onclick="startBeginner('栈','easy')" class="group p-3 rounded-xl bg-slate-900/60 border border-sky-500/25 hover:border-sky-400/60 hover:bg-sky-500/10 transition">
-                <div class="text-xs text-sky-300 font-medium mb-0.5">② 栈</div>
-                <div class="text-[10px] text-slate-500">基础 · 简单</div>
+              <button onclick="startBeginner('栈','easy')" class="beginner-item">
+                <div class="bi-title">02 · 栈</div>
+                <div class="bi-sub">基础 · 简单</div>
               </button>
-              <button onclick="startBeginner('递归','medium')" class="group p-3 rounded-xl bg-slate-900/60 border border-violet-500/25 hover:border-violet-400/60 hover:bg-violet-500/10 transition">
-                <div class="text-xs text-violet-300 font-medium mb-0.5">③ 递归</div>
-                <div class="text-[10px] text-slate-500">进阶 · 中等</div>
+              <button onclick="startBeginner('递归','medium')" class="beginner-item">
+                <div class="bi-title">03 · 递归</div>
+                <div class="bi-sub">进阶 · 中等</div>
               </button>
             </div>
           </div>
 
-          <p class="text-[11px] text-slate-500 mb-2">或直接试试热门知识点</p>
-          <div class="flex flex-wrap gap-2 justify-center">
-            <button onclick="quickExam('快速排序','编程题')" class="px-3 py-1.5 rounded-lg bg-indigo-500/20 border border-indigo-500/40 text-indigo-300 text-xs hover:bg-indigo-500/30 transition">⚡ 快排 · 编程</button>
-            <button onclick="quickExam('红黑树','选择题')" class="px-3 py-1.5 rounded-lg bg-purple-500/20 border border-purple-500/40 text-purple-300 text-xs hover:bg-purple-500/30 transition">⚡ 红黑树 · 选择</button>
-            <button onclick="quickExam('BFS','编程题')" class="px-3 py-1.5 rounded-lg bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 text-xs hover:bg-emerald-500/30 transition">⚡ BFS · 编程</button>
-            <button onclick="quickExam('动态规划','选择题')" class="px-3 py-1.5 rounded-lg bg-amber-500/20 border border-amber-500/40 text-amber-300 text-xs hover:bg-amber-500/30 transition">⚡ 动规 · 选择</button>
+          <p class="text-[11px] text-slate-500 mt-8 mb-2">或直接试试热门知识点</p>
+          <div class="popular-row">
+            <button onclick="quickExam('快速排序','编程题')" class="btn btn-ghost btn-xs">快速排序 · 编程</button>
+            <button onclick="quickExam('红黑树','选择题')" class="btn btn-ghost btn-xs">红黑树 · 选择</button>
+            <button onclick="quickExam('BFS','编程题')" class="btn btn-ghost btn-xs">BFS · 编程</button>
+            <button onclick="quickExam('动态规划','选择题')" class="btn btn-ghost btn-xs">动态规划 · 选择</button>
           </div>
         </div>
       </div>
     </div>
 
-    <!-- 图谱 Tab -->
-    <div id="panel-graph" class="tab-panel bg-slate-800/50 rounded-2xl border border-slate-700/50 overflow-hidden backdrop-blur hidden relative">
-      <div class="px-4 py-3 border-b border-slate-700/50 flex items-center justify-between">
+    <!-- ==================== 图谱 ==================== -->
+    <div id="panel-graph" class="tab-panel cm-panel hidden">
+      <div class="panel-head flex items-start justify-between gap-4">
         <div>
-          <h2 class="font-semibold">🗺️ 计算机学科知识图谱</h2>
-          <p class="text-xs text-slate-400" id="graph-stats">加载中...</p>
+          <div class="eyebrow">Knowledge graph</div>
+          <h2 class="panel-title mt-1">计算机学科知识图谱</h2>
+          <p class="panel-sub" id="graph-stats">加载中...</p>
         </div>
-        <div class="flex gap-2 text-xs items-center">
-          <span class="text-slate-500 hidden sm:inline">滚轮缩放 · 拖动平移</span>
-          <button onclick="loadGraph()" class="px-3 py-1.5 rounded bg-indigo-600 hover:bg-indigo-500">🔄 刷新</button>
+        <div class="flex items-center gap-3">
+          <span class="footnote hidden sm:inline">滚轮缩放 · 拖动平移</span>
+          <button onclick="loadGraph()" class="btn btn-ghost btn-sm">
+            <svg class="cm-icon cm-icon-sm" aria-hidden="true"><use href="#i-refresh"></use></svg>刷新
+          </button>
         </div>
       </div>
       <div id="graph-loader" class="graph-loading">
         <div class="graph-spinner"></div>
       </div>
-      <!-- 节点详情浮层（hover 显示掌握度 / 前置 / 错题） -->
-      <div id="graph-tooltip" class="hidden absolute z-30 pointer-events-none bg-slate-950/95 border border-indigo-500/40 rounded-xl px-3 py-2 shadow-2xl text-xs max-w-[240px]"></div>
-      <svg id="graph-svg" width="100%" height="calc(100vh - 360px)" class="min-h-[460px] bg-slate-900/50"></svg>
+      <div id="graph-tooltip" class="graph-tooltip hidden pointer-events-none"></div>
+      <svg id="graph-svg" width="100%" aria-label="知识图谱"></svg>
     </div>
 
-    <!-- 学情 Tab -->
-    <div id="panel-teacher" class="tab-panel bg-slate-800/50 rounded-2xl border border-slate-700/50 overflow-hidden backdrop-blur hidden">
-      <div class="px-4 py-3 border-b border-slate-700/50 flex items-center justify-between">
+    <!-- ==================== 学情 ==================== -->
+    <div id="panel-teacher" class="tab-panel cm-panel hidden">
+      <div class="panel-head flex items-start justify-between gap-4">
         <div>
-          <h2 class="font-semibold">📊 学情驾驶舱</h2>
-          <p class="text-xs text-slate-400">基于 BKT 贝叶斯知识追踪算法</p>
+          <div class="eyebrow">Analytics</div>
+          <h2 class="panel-title mt-1">学情</h2>
+          <p class="panel-sub">学生：浏览器本地学情 · 教师：班级作业数据<span class="teacher-only hidden text-amber-300"> · 当前是教师账号：个人练一练画像请用学生账号查看</span></p>
         </div>
-        <button onclick="generateReport()" class="px-4 py-2 rounded-lg bg-gradient-to-br from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-sm font-medium shadow-lg shadow-indigo-600/25 transition">🤖 LLM 生成报告</button>
+        <div class="flex flex-wrap items-center gap-2">
+          <button id="student-profile-btn" onclick="openProfileDetail()" class="btn btn-ghost btn-sm">
+            <svg class="cm-icon cm-icon-sm" aria-hidden="true"><use href="#i-chart"></use></svg>打开学情档案
+          </button>
+          <button id="teacher-report-btn" onclick="generateReport()" class="teacher-only hidden btn btn-ghost btn-sm">
+            <svg class="cm-icon cm-icon-sm" aria-hidden="true"><use href="#i-spark"></use></svg>生成班级报告
+          </button>
+        </div>
       </div>
-      <div class="p-4 grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div class="bg-slate-900/50 rounded-xl p-4">
-          <div id="radar-title" class="chart-title chart-indigo">👤 学生掌握度雷达</div>
+
+      <!-- 教师：多班级 + 作业操作 -->
+      <div id="teacher-class-toolbar" class="teacher-only hidden section-block flex flex-wrap items-center gap-2">
+        <select id="teacher-class-select" onchange="onTeacherClassChange()" class="text-sm" style="min-width:180px"></select>
+        <button onclick="openCreateClass()" class="btn btn-ghost btn-sm">创建班级</button>
+        <button onclick="openCreateAssignment()" class="btn btn-primary btn-sm">
+          <svg class="cm-icon cm-icon-sm" aria-hidden="true"><use href="#i-plus"></use></svg>布置统一作业
+        </button>
+        <button onclick="refreshTeacherClassData()" class="btn btn-quiet btn-sm" title="刷新看板">
+          <svg class="cm-icon cm-icon-sm" aria-hidden="true"><use href="#i-refresh"></use></svg>
+        </button>
+        <span id="teacher-join-code" class="footnote"></span>
+      </div>
+
+      <div id="teacher-assignments-box" class="teacher-only hidden section-block">
+        <div class="flex items-center justify-between mb-3">
+          <h3 class="panel-title text-base">已布置作业</h3>
+        </div>
+        <div id="teacher-assignment-list" class="space-y-2">
+          <p class="text-xs text-slate-500">还没有布置作业</p>
+        </div>
+      </div>
+
+      <div class="section-block grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div>
+          <div id="radar-title" class="chart-title">学生掌握度雷达</div>
           <div id="radar-chart" style="height:280px"></div>
         </div>
-        <div class="bg-slate-900/50 rounded-xl p-4 md:col-span-2">
-          <div class="chart-title chart-rose">🔥 知识点薄弱热力图</div>
+        <div class="md:col-span-2">
+          <div id="heatmap-title" class="chart-title">知识点薄弱热力图</div>
           <div id="heatmap-chart" style="height:280px"></div>
         </div>
       </div>
-      <div class="px-4 mb-4">
-        <div class="bg-slate-900/50 rounded-xl p-4">
-          <h3 class="text-sm font-medium mb-3">📕 高频错题榜（按知识点聚合全班答错次数）</h3>
-          <div id="wrong-ranking" class="space-y-2">
-            <p class="text-xs text-slate-500">暂无错题数据 — 学生在「练一练」答错题目后自动统计</p>
-          </div>
+
+      <div class="section-block">
+        <div id="wrong-ranking-title" class="chart-title">高频错题榜</div>
+        <div id="wrong-ranking" class="space-y-1">
+          <p class="text-xs text-slate-500">暂无错题数据</p>
         </div>
       </div>
-      <div class="px-4 mb-4">
-        <div class="bg-slate-900/50 rounded-xl p-4">
-          <h3 class="text-sm font-medium mb-3">👥 学生学情列表（按薄弱程度排序）</h3>
-          <div id="student-list" class="space-y-2 mb-3"></div>
-          <div id="student-detail" class="hidden border-t border-slate-700 pt-3">
-            <h4 class="text-sm font-medium mb-2 text-slate-300">📊 掌握度详情</h4>
-            <div id="student-radar" style="height:220px"></div>
-            <div id="student-weak" class="mt-2 text-xs text-slate-400"></div>
-          </div>
+
+      <div class="section-block">
+        <div id="student-list-title" class="chart-title">学生学情列表</div>
+        <div id="student-list" class="mb-3"></div>
+        <div id="student-detail" class="hidden border-t border-slate-700 pt-3">
+          <h4 class="text-sm font-medium mb-2 text-slate-300">掌握度详情</h4>
+          <div id="student-radar" style="height:220px"></div>
+          <div id="student-weak" class="mt-2 text-xs text-slate-400"></div>
         </div>
       </div>
-      <div id="report-box" class="mx-4 mb-4 bg-slate-900/50 rounded-xl p-4 hidden">
+
+      <div id="report-box" class="mx-4 mb-4 hidden border-t border-slate-700 pt-4">
         <h3 class="text-sm font-medium mb-2 flex items-center justify-between">
-          <span class="flex items-center gap-2"><span class="tool-badge">🤖</span> AI 学情分析报告</span>
-          <button onclick="toggleReportExpand()" id="report-expand-btn" class="text-[10px] px-2 py-0.5 rounded bg-slate-700/50 hover:bg-slate-600 text-slate-300 transition">展开 ▼</button>
+          <span class="flex items-center gap-2"><svg class="cm-icon cm-icon-sm" aria-hidden="true"><use href="#i-spark"></use></svg>AI 学情分析报告</span>
+          <button onclick="toggleReportExpand()" id="report-expand-btn" class="btn btn-quiet btn-xs">展开</button>
         </h3>
         <div id="report-content" class="prose-cm text-sm text-slate-300 max-h-96 overflow-auto transition-all duration-300"></div>
       </div>
@@ -546,137 +517,140 @@
 
   </section>
 
-  <!-- ============ 右侧：快速信息栏 ============ -->
-  <aside class="lg:col-span-4 space-y-4">
+  <!-- ============ 右侧：边注栏 ============ -->
+  <aside class="cm-sidebar">
 
     <!-- API Key 提示 -->
-    <div id="api-tip" class="bg-gradient-to-br from-amber-900/40 to-orange-900/40 border border-amber-700/50 rounded-2xl p-4 hidden">
-      <div class="flex items-start gap-3">
-        <span class="text-xl">⚠️</span>
-        <div class="text-sm">
-          <p class="font-medium text-amber-200">LLM API Key 未配置</p>
-          <p class="text-amber-300/80 mt-1 text-xs">在 backend/.env 中填入 LLM_API_KEY，否则 Agent 无法调用大模型</p>
+    <div id="api-tip" class="side-block hidden">
+      <div class="hint-box flex items-start gap-3">
+        <svg class="cm-icon cm-icon-lg flex-none mt-0.5" aria-hidden="true"><use href="#i-key"></use></svg>
+        <div class="text-xs flex-1">
+          <p class="font-medium">还没有配置自己的模型 Key</p>
+          <p class="mt-1 leading-relaxed">AI 对话 / 出题 / 报告需要你自己的远程 API Key；Key 只保存在当前浏览器。</p>
+          <button onclick="openSettings()" class="btn btn-ghost btn-xs mt-2">去配置模型</button>
         </div>
       </div>
     </div>
 
     <!-- 图谱 Tab：图谱规模实时数据 -->
-    <div id="side-stats" class="side-block bg-slate-800/50 rounded-2xl border border-slate-700/50 p-4 backdrop-blur" data-tabs="graph">
-      <div class="flex items-center justify-between mb-3">
-        <h3 class="font-semibold flex items-center gap-2">⚡ 图谱实时数据</h3>
-        <button onclick="refreshDashboard()" class="text-xs text-slate-400 hover:text-indigo-300 transition" title="刷新数据">🔄</button>
+    <div id="side-stats" class="side-block" data-tabs="graph">
+      <div class="side-title">
+        <span>图谱实时数据</span>
+        <button onclick="refreshDashboard()" class="side-action" title="刷新数据">
+          <svg class="cm-icon cm-icon-sm" aria-hidden="true"><use href="#i-refresh"></use></svg>
+        </button>
       </div>
-      <div class="grid grid-cols-2 gap-2">
-        <div class="stat-card bg-gradient-to-br from-indigo-500/15 to-purple-500/15 border border-indigo-500/20 rounded-lg p-3">
-          <div class="text-[10px] text-slate-400 mb-1">图谱节点</div>
-          <div id="stat-nodes" class="stat-num text-xl font-bold text-indigo-300">—</div>
+      <div class="side-stat-grid">
+        <div class="side-stat">
+          <div class="side-stat-label">图谱节点</div>
+          <div id="stat-nodes" class="side-stat-value">—</div>
         </div>
-        <div class="stat-card bg-gradient-to-br from-emerald-500/15 to-teal-500/15 border border-emerald-500/20 rounded-lg p-3">
-          <div class="text-[10px] text-slate-400 mb-1">知识关联</div>
-          <div id="stat-edges" class="stat-num text-xl font-bold text-emerald-300">—</div>
+        <div class="side-stat">
+          <div class="side-stat-label">知识关联</div>
+          <div id="stat-edges" class="side-stat-value">—</div>
         </div>
-        <div class="stat-card bg-gradient-to-br from-amber-500/15 to-orange-500/15 border border-amber-500/20 rounded-lg p-3">
-          <div class="text-[10px] text-slate-400 mb-1">薄弱知识点</div>
-          <div id="stat-weak" class="stat-num text-lg font-bold text-amber-300">—</div>
+        <div class="side-stat">
+          <div class="side-stat-label">薄弱知识点</div>
+          <div id="stat-weak" class="side-stat-value">—</div>
         </div>
-        <div class="stat-card bg-gradient-to-br from-rose-500/15 to-pink-500/15 border border-rose-500/20 rounded-lg p-3">
-          <div class="text-[10px] text-slate-400 mb-1">活跃学生</div>
-          <div id="stat-students" class="stat-num text-lg font-bold text-rose-300">—</div>
+        <div class="side-stat">
+          <div class="side-stat-label">活跃学生</div>
+          <div id="stat-students" class="side-stat-value">—</div>
         </div>
       </div>
-      <div class="mt-3 pt-3 border-t border-slate-700/50 text-[10px] text-slate-500 flex items-center gap-1.5">
-        <span class="pulse-dot"></span> 每 30 秒自动刷新 · 后端在线
-      </div>
+      <p class="footnote mt-2 flex items-center gap-1.5"><span class="status-dot"></span> 每 30 秒自动刷新 · 后端在线</p>
     </div>
 
     <!-- 对话 Tab：本次对话命中的知识点 -->
-    <div id="side-chat-topic" class="side-block bg-slate-800/50 rounded-2xl border border-slate-700/50 p-4 backdrop-blur hidden" data-tabs="chat">
-      <div class="flex items-center justify-between mb-2">
-        <h3 class="font-semibold">🧠 本次对话涉及知识点</h3>
-        <span id="side-topic-count" class="text-[10px] text-slate-500">0 个</span>
+    <div id="side-chat-topic" class="side-block hidden" data-tabs="chat">
+      <div class="side-title">
+        <span>本次对话涉及知识点</span>
+        <span id="side-topic-count" class="footnote">0 个</span>
       </div>
       <div id="side-topic-list" class="flex flex-wrap gap-1.5">
         <p class="text-[11px] text-slate-500">发消息后，AI 命中的图谱节点会自动出现在这里</p>
       </div>
-      <p class="text-[10px] text-slate-600 mt-2">点击标签可定位到图谱</p>
+      <p class="footnote mt-2">点击标签可定位到图谱</p>
     </div>
 
     <!-- 练一练 Tab：今日练习数据 -->
-    <div id="side-today" class="side-block bg-slate-800/50 rounded-2xl border border-slate-700/50 p-4 backdrop-blur hidden" data-tabs="practice">
-      <h3 class="font-semibold mb-3">📅 今日练习数据</h3>
-      <div class="grid grid-cols-3 gap-2">
-        <div class="bg-slate-900/60 rounded-lg p-2.5 text-center border border-slate-700/50">
-          <div id="today-answered" class="text-lg font-bold text-sky-300">0</div>
-          <div class="text-[10px] text-slate-500 mt-0.5">答题数</div>
+    <div id="side-today" class="side-block hidden" data-tabs="practice">
+      <div class="side-title"><span>今日练习数据</span></div>
+      <div class="side-stat-grid" style="grid-template-columns:repeat(3,minmax(0,1fr))">
+        <div class="side-stat">
+          <div id="today-answered" class="side-stat-value">0</div>
+          <div class="side-stat-label mt-0.5">答题数</div>
         </div>
-        <div class="bg-slate-900/60 rounded-lg p-2.5 text-center border border-slate-700/50">
-          <div id="today-accuracy" class="text-lg font-bold text-emerald-300">—</div>
-          <div class="text-[10px] text-slate-500 mt-0.5">正确率</div>
+        <div class="side-stat">
+          <div id="today-accuracy" class="side-stat-value">—</div>
+          <div class="side-stat-label mt-0.5">正确率</div>
         </div>
-        <div class="bg-slate-900/60 rounded-lg p-2.5 text-center border border-slate-700/50">
-          <div id="today-streak" class="text-lg font-bold text-amber-300">0</div>
-          <div class="text-[10px] text-slate-500 mt-0.5">连续答对</div>
+        <div class="side-stat">
+          <div id="today-streak" class="side-stat-value">0</div>
+          <div class="side-stat-label mt-0.5">连续答对</div>
         </div>
       </div>
-      <p id="today-empty" class="text-[11px] text-slate-500 mt-2.5">
-        还没有练习记录 · <button onclick="switchTab('chat');sendQuick('给我出一道入门题')" class="text-indigo-300 hover:underline">去练一道 →</button>
+      <p id="today-empty" class="footnote mt-2">
+        还没有练习记录 · <button onclick="switchTab('chat');sendQuick('给我出一道入门题')" class="text-accent hover:underline">去练一道</button>
       </p>
     </div>
 
     <!-- 学情 Tab：近 7 天进步曲线 -->
-    <div id="side-progress" class="side-block bg-slate-800/50 rounded-2xl border border-slate-700/50 p-4 backdrop-blur hidden" data-tabs="teacher">
-      <div class="flex items-center justify-between mb-2">
-        <h3 class="font-semibold">📈 近 7 天进步曲线</h3>
-        <span id="progress-sub" class="text-[10px] text-slate-500"></span>
+    <div id="side-progress" class="side-block hidden" data-tabs="teacher">
+      <div class="side-title">
+        <span>近 7 天进步曲线</span>
+        <span id="progress-sub" class="footnote"></span>
       </div>
       <div id="progress-chart" style="height:150px"></div>
-      <p id="progress-empty" class="text-[11px] text-slate-500 mt-1 hidden">
-        暂无答题记录 · <button onclick="switchTab('practice')" class="text-indigo-300 hover:underline">去做第一道题 →</button>
+      <p id="progress-empty" class="footnote mt-1 hidden">
+        暂无答题记录 · <button onclick="switchTab('practice')" class="text-accent hover:underline">去做第一道题</button>
       </p>
     </div>
 
     <!-- 图谱图例（可点击筛选） -->
-    <div id="side-legend" class="bg-slate-800/50 rounded-2xl border border-slate-700/50 p-4 backdrop-blur side-block hidden" data-tabs="graph">
-      <div class="flex items-center justify-between mb-3">
-        <h3 class="font-semibold">🏷️ 节点类型</h3>
-        <button onclick="resetGraphFilter()" class="text-[10px] text-slate-400 hover:text-indigo-300">全部显示</button>
+    <div id="side-legend" class="side-block hidden" data-tabs="graph">
+      <div class="side-title">
+        <span>节点类型</span>
+        <button onclick="resetGraphFilter()" class="side-action">全部显示</button>
       </div>
-      <div class="grid grid-cols-2 gap-1.5 text-xs">
-        <button onclick="toggleGraphCategory('chapter')" data-cat="chapter" class="legend-item flex items-center gap-1.5 px-2 py-1 rounded-md hover:bg-slate-700/50 transition text-left"><span class="w-3 h-3 rounded bg-indigo-500 flex-shrink-0"></span> 章节</button>
-        <button onclick="toggleGraphCategory('structure')" data-cat="structure" class="legend-item flex items-center gap-1.5 px-2 py-1 rounded-md hover:bg-slate-700/50 transition text-left"><span class="w-3 h-3 rounded bg-purple-500 flex-shrink-0"></span> 数据结构</button>
-        <button onclick="toggleGraphCategory('algorithm')" data-cat="algorithm" class="legend-item flex items-center gap-1.5 px-2 py-1 rounded-md hover:bg-slate-700/50 transition text-left"><span class="w-3 h-3 rounded bg-emerald-500 flex-shrink-0"></span> 算法</button>
-        <button onclick="toggleGraphCategory('operation')" data-cat="operation" class="legend-item flex items-center gap-1.5 px-2 py-1 rounded-md hover:bg-slate-700/50 transition text-left"><span class="w-3 h-3 rounded bg-amber-500 flex-shrink-0"></span> 操作</button>
-        <button onclick="toggleGraphCategory('paradigm')" data-cat="paradigm" class="legend-item flex items-center gap-1.5 px-2 py-1 rounded-md hover:bg-slate-700/50 transition text-left"><span class="w-3 h-3 rounded bg-rose-500 flex-shrink-0"></span> 范式</button>
-        <button onclick="toggleGraphCategory('concept')" data-cat="concept" class="legend-item flex items-center gap-1.5 px-2 py-1 rounded-md hover:bg-slate-700/50 transition text-left"><span class="w-3 h-3 rounded bg-sky-500 flex-shrink-0"></span> 概念</button>
+      <div class="legend-grid">
+        <button onclick="toggleGraphCategory('chapter')" data-cat="chapter" class="legend-item"><span class="legend-swatch" style="background:#6B665E"></span>章节</button>
+        <button onclick="toggleGraphCategory('structure')" data-cat="structure" class="legend-item"><span class="legend-swatch" style="background:#8A7B5C"></span>数据结构</button>
+        <button onclick="toggleGraphCategory('algorithm')" data-cat="algorithm" class="legend-item"><span class="legend-swatch" style="background:#4F6B4A"></span>算法</button>
+        <button onclick="toggleGraphCategory('operation')" data-cat="operation" class="legend-item"><span class="legend-swatch" style="background:#9A6B2F"></span>操作</button>
+        <button onclick="toggleGraphCategory('paradigm')" data-cat="paradigm" class="legend-item"><span class="legend-swatch" style="background:#A8442E"></span>范式</button>
+        <button onclick="toggleGraphCategory('concept')" data-cat="concept" class="legend-item"><span class="legend-swatch" style="background:#3E5C76"></span>概念</button>
       </div>
-      <p class="text-[10px] text-slate-600 mt-2">点击可隐藏 / 显示该类节点 · 滚轮缩放，缩小后只显示重要节点</p>
+      <p class="footnote mt-2">点击可隐藏 / 显示该类节点 · 滚轮缩放，缩小后只显示重要节点</p>
     </div>
 
     <!-- 快速搜索（对话 / 图谱 可用） -->
-    <div id="side-search" class="bg-slate-800/50 rounded-2xl border border-slate-700/50 p-4 backdrop-blur side-block" data-tabs="chat,graph">
-      <h3 class="font-semibold mb-3">🔍 图谱节点搜索</h3>
+    <div id="side-search" class="side-block" data-tabs="chat,graph">
+      <h3 class="side-title"><span>图谱节点搜索</span></h3>
       <div class="flex gap-2">
         <input id="quick-search" placeholder="搜索：红黑树、快排、BFS..."
           oninput="graphQuickSearch()"
           onkeydown="if(event.key==='Enter')graphQuickSearch(true)"
-          class="flex-1 p-2 bg-slate-900 rounded-lg border border-slate-600/50 text-sm outline-none focus:border-indigo-500 transition">
-        <button onclick="graphQuickSearch(true)" class="px-3 py-2 bg-indigo-600 hover:bg-indigo-500 rounded-lg text-xs transition">🔎</button>
+          class="flex-1 p-2 text-sm">
+        <button onclick="graphQuickSearch(true)" class="icon-btn" title="搜索">
+          <svg class="cm-icon" aria-hidden="true"><use href="#i-search"></use></svg>
+        </button>
       </div>
       <div id="search-results" class="mt-2 space-y-1 max-h-48 overflow-auto hidden"></div>
     </div>
 
     <!-- 练一练：热门知识点一键出题 -->
-    <div id="side-practice" class="bg-slate-800/50 rounded-2xl border border-slate-700/50 p-4 backdrop-blur side-block hidden" data-tabs="practice">
-      <h3 class="font-semibold mb-3">⚡ 热门知识点</h3>
-      <p class="text-[11px] text-slate-500 mb-2.5">点击直接生成对应题目</p>
+    <div id="side-practice" class="side-block hidden" data-tabs="practice">
+      <h3 class="side-title"><span>热门知识点</span></h3>
+      <p class="footnote mb-2.5">点击直接生成对应题目</p>
       <div id="side-practice-list" class="flex flex-wrap gap-1.5">
         <span class="text-xs text-slate-500">加载中…</span>
       </div>
     </div>
 
     <!-- 学情：薄弱知识点 Top 3 -->
-    <div id="side-teacher" class="bg-slate-800/50 rounded-2xl border border-slate-700/50 p-4 backdrop-blur side-block hidden" data-tabs="teacher">
-      <h3 class="font-semibold mb-3">🔥 薄弱知识点 Top 3</h3>
+    <div id="side-teacher" class="side-block hidden" data-tabs="teacher">
+      <h3 class="side-title"><span>薄弱知识点 Top 3</span></h3>
       <div id="side-weak-list" class="space-y-2">
         <span class="text-xs text-slate-500">加载中…</span>
       </div>
@@ -686,38 +660,220 @@
 </main>
 
 <!-- ============ JS ============ -->
-<script type="module" src="./js/app.js?v=3"></script>
+<script type="module" src="./js/app.js?v=6"></script>
+
+<!-- ============ 个人学情档案 ============ -->
+<div id="profile-detail-modal" class="modal-overlay hidden" style="z-index:115" onclick="if(event.target===this)closeProfileDetail()">
+  <div class="modal-panel profile-modal" role="dialog" aria-modal="true" aria-labelledby="profile-modal-title">
+    <div class="profile-head">
+      <div>
+        <div class="eyebrow">Student profile</div>
+        <h2 class="modal-title" id="profile-modal-title">个人学情档案</h2>
+        <p class="modal-sub" id="profile-plugin-line">正在读取当前插件...</p>
+      </div>
+      <button onclick="closeProfileDetail()" class="modal-close" aria-label="关闭">
+        <svg class="cm-icon cm-icon-lg" aria-hidden="true"><use href="#i-x"></use></svg>
+      </button>
+    </div>
+
+    <div class="profile-toolbar">
+      <div class="profile-scopes" role="tablist" aria-label="数据来源">
+        <button class="profile-scope active" data-scope="all" role="tab" aria-selected="true" onclick="setProfileScope('all')">全部</button>
+        <button class="profile-scope" data-scope="personal" role="tab" aria-selected="false" onclick="setProfileScope('personal')">个人练习</button>
+        <button class="profile-scope" data-scope="assignment" role="tab" aria-selected="false" onclick="setProfileScope('assignment')">班级作业</button>
+      </div>
+      <div class="profile-toolbar-actions">
+        <span class="footnote">分析时仅发送汇总数据</span>
+        <button id="profile-analyze-all" onclick="generateProfileAnalysis('all')" class="btn btn-primary btn-sm">
+          <svg class="cm-icon cm-icon-sm" aria-hidden="true"><use href="#i-spark"></use></svg>AI 分析整体
+        </button>
+      </div>
+    </div>
+
+    <div id="profile-summary" class="profile-summary"></div>
+
+    <div class="profile-body">
+      <aside class="profile-list-pane">
+        <div class="profile-list-head">
+          <span class="eyebrow">已练习知识点</span>
+          <span id="profile-concept-count" class="footnote">0 个</span>
+        </div>
+        <div id="profile-concept-list" class="profile-concept-list"></div>
+      </aside>
+
+      <section class="profile-detail-pane" id="profile-detail-pane">
+        <div id="profile-concept-detail"></div>
+        <div class="profile-analysis" id="profile-analysis-box">
+          <div class="profile-analysis-head">
+            <div>
+              <div class="eyebrow">AI review</div>
+              <h3 class="panel-title text-base">学情分析</h3>
+            </div>
+            <span id="profile-analysis-hint" class="footnote">点击上方按钮生成；仅发送汇总数据</span>
+          </div>
+          <div id="profile-analysis-content" class="prose-cm text-sm"></div>
+        </div>
+      </section>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 模型设置弹窗 ============ -->
+<div id="settings-modal" class="modal-overlay hidden" style="z-index:120" onclick="if(event.target===this)closeSettings()">
+  <div class="modal-panel modal-md">
+    <div class="modal-head">
+      <div>
+        <h2 class="modal-title">模型设置</h2>
+        <p class="modal-sub">使用你自己的远程 API Key。服务端不保存，Key 只存在当前浏览器。</p>
+      </div>
+      <button onclick="closeSettings()" class="modal-close" aria-label="关闭">
+        <svg class="cm-icon cm-icon-lg" aria-hidden="true"><use href="#i-x"></use></svg>
+      </button>
+    </div>
+    <div id="settings-msg" class="hidden mb-3"></div>
+    <label class="form-label">模型提供方</label>
+    <select id="llm-provider" class="w-full mb-3 form-input">
+      <option value="deepseek">DeepSeek（默认 deepseek-chat）</option>
+      <option value="zhipu">智谱 GLM（默认 glm-4-flash）</option>
+    </select>
+    <label class="form-label">远程 API Key</label>
+    <input id="llm-key" type="password" autocomplete="off" placeholder="sk-..." class="w-full mb-2 form-input">
+    <label class="flex items-center gap-2 text-xs text-slate-400 mb-3 cursor-pointer">
+      <input id="llm-remember" type="checkbox">
+      记住此设备（写入 localStorage；默认只保存在当前标签页）
+    </label>
+    <p class="footnote mb-3">当前状态：<span id="llm-key-status" class="text-slate-300">尚未配置</span></p>
+    <div class="flex flex-wrap gap-2">
+      <button id="settings-test-btn" onclick="testLLMSettings()" class="btn btn-ghost btn-sm">测试连接</button>
+      <button onclick="saveSettingsFromForm()" class="btn btn-primary btn-sm">保存配置</button>
+      <button onclick="clearSettings()" class="btn btn-danger btn-sm">清除 Key</button>
+    </div>
+    <div class="mt-5 pt-4 border-t border-slate-700/50">
+      <h3 class="text-sm font-medium mb-1">本地学习数据</h3>
+      <p class="footnote mb-2">个人练习的 BKT / 错题本 / 历史只存在当前浏览器。换设备时可导出再导入。</p>
+      <div class="flex flex-wrap gap-2">
+        <button onclick="exportLocalData()" class="btn btn-ghost btn-sm">导出</button>
+        <button onclick="triggerImportLocalData()" class="btn btn-ghost btn-sm">导入</button>
+        <button onclick="clearLocalData()" class="btn btn-danger btn-sm">清空本地学情</button>
+        <input id="profile-import-file" type="file" accept="application/json,.json" class="hidden" onchange="importLocalData(event)">
+      </div>
+    </div>
+    <p class="footnote mt-4">提示：DeepSeek 不支持图片理解；截图答疑请选择智谱 GLM。未配置 Key 时仍可做老师布置的作业。</p>
+  </div>
+</div>
+
+<!-- ============ 创建班级弹窗 ============ -->
+<div id="class-create-modal" class="modal-overlay hidden" style="z-index:110" onclick="if(event.target===this)closeCreateClass()">
+  <div class="modal-panel modal-sm">
+    <div class="modal-head">
+      <h2 class="modal-title">创建班级</h2>
+      <button onclick="closeCreateClass()" class="modal-close" aria-label="关闭">
+        <svg class="cm-icon cm-icon-lg" aria-hidden="true"><use href="#i-x"></use></svg>
+      </button>
+    </div>
+    <label class="form-label">班级名称</label>
+    <input id="class-name-input" placeholder="例如：2026 级计科 1 班" class="w-full form-input">
+    <div id="class-create-msg" class="hidden"></div>
+    <div class="modal-actions">
+      <button onclick="closeCreateClass()" class="btn btn-ghost btn-sm">取消</button>
+      <button id="class-create-btn" onclick="createClassUI()" class="btn btn-primary btn-sm">创建</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 布置统一作业弹窗 ============ -->
+<div id="assignment-create-modal" class="modal-overlay hidden" style="z-index:110" onclick="if(event.target===this)closeCreateAssignment()">
+  <div class="modal-panel" style="max-width:640px">
+    <div class="modal-head">
+      <div>
+        <h2 class="modal-title">布置统一作业</h2>
+        <p class="modal-sub">使用你的 Key 生成一次题目快照；之后判分不需要服务端 Key。</p>
+      </div>
+      <button onclick="closeCreateAssignment()" class="modal-close" aria-label="关闭">
+        <svg class="cm-icon cm-icon-lg" aria-hidden="true"><use href="#i-x"></use></svg>
+      </button>
+    </div>
+    <label class="form-label">作业标题</label>
+    <input id="assign-title" placeholder="例如：图论小测" class="w-full mb-3 form-input">
+    <label class="form-label">发布到班级（可多选）</label>
+    <div id="assign-classes" class="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-3"></div>
+    <div class="grid grid-cols-2 gap-3 mb-3">
+      <div>
+        <label class="form-label">题数</label>
+        <select id="assign-count" class="w-full form-input">
+          <option value="3">3 题</option>
+          <option value="5" selected>5 题</option>
+          <option value="8">8 题</option>
+          <option value="10">10 题</option>
+        </select>
+      </div>
+      <div>
+        <label class="form-label">难度</label>
+        <select id="assign-difficulty" class="w-full form-input">
+          <option value="easy">简单</option>
+          <option value="medium" selected>中等</option>
+          <option value="hard">困难</option>
+        </select>
+      </div>
+    </div>
+    <label class="form-label">截止时间（可选）</label>
+    <input id="assign-due" type="datetime-local" class="w-full form-input">
+    <div id="assignment-create-msg" class="hidden"></div>
+    <div class="modal-actions">
+      <button onclick="closeCreateAssignment()" class="btn btn-ghost btn-sm">取消</button>
+      <button id="assign-create-btn" onclick="createAssignmentUI()" class="btn btn-primary btn-sm">生成并发布</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 教师：作业提交详情 ============ -->
+<div id="teacher-detail-modal" class="modal-overlay hidden" style="z-index:110" onclick="if(event.target===this)closeTeacherAssignmentModal()">
+  <div class="modal-panel modal-lg">
+    <div id="teacher-detail-content"></div>
+  </div>
+</div>
+
+<!-- ============ 学生：作答作业弹窗 ============ -->
+<div id="take-assignment-modal" class="modal-overlay hidden" style="z-index:110" onclick="if(event.target===this)closeTakeAssignment()">
+  <div class="modal-panel modal-xl">
+    <div id="take-assignment-content"></div>
+  </div>
+</div>
 
 <!-- ============ 登录弹窗 ============ -->
-<div id="login-modal" class="hidden fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm" onclick="if(event.target===this)closeLogin()">
-  <div class="modal-fade-in w-[400px] bg-gradient-to-b from-slate-900 to-slate-950 border border-slate-700/80 rounded-2xl p-6 shadow-2xl">
-    <div class="flex items-center justify-between mb-5">
-      <div class="flex items-center gap-2">
-        <div class="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center font-bold text-white text-sm">C</div>
-        <h2 class="text-lg font-bold">🔐 登录 CodeMentor</h2>
+<div id="login-modal" class="modal-overlay hidden" style="z-index:100" onclick="if(event.target===this)closeLogin()">
+  <div class="modal-panel modal-sm">
+    <div class="modal-head">
+      <div>
+        <h2 class="modal-title">登录 CodeMentor</h2>
+        <p class="modal-sub">教师查看班级学情，学生完成统一作业与个性化练习。</p>
       </div>
-      <button onclick="closeLogin()" class="text-slate-400 hover:text-white text-xl leading-none w-7 h-7 rounded hover:bg-slate-800">×</button>
+      <button onclick="closeLogin()" class="modal-close" aria-label="关闭">
+        <svg class="cm-icon cm-icon-lg" aria-hidden="true"><use href="#i-x"></use></svg>
+      </button>
     </div>
-    <div id="login-msg" class="hidden text-xs text-amber-400 mb-3 bg-amber-500/10 border border-amber-500/30 rounded-lg p-2"></div>
+    <div id="login-msg" class="hidden text-xs mb-3"></div>
     <div class="grid grid-cols-2 gap-2 mb-3">
-      <button onclick="fillDemo('teacher')" class="group px-3 py-2 rounded-lg bg-indigo-500/10 border border-indigo-500/30 text-xs text-indigo-300 hover:bg-indigo-500/20 transition">
-        <span class="font-medium">👩‍🏫 教师演示</span><br><span class="text-[10px] text-slate-500">teacher / 123456</span>
+      <button onclick="fillDemo('teacher')" class="demo-btn">
+        <strong>教师演示</strong>
+        <span>teacher / 123456</span>
       </button>
-      <button onclick="fillDemo('student')" class="group px-3 py-2 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-xs text-emerald-300 hover:bg-emerald-500/20 transition">
-        <span class="font-medium">👨‍🎓 学生演示</span><br><span class="text-[10px] text-slate-500">student / 123456</span>
+      <button onclick="fillDemo('student')" class="demo-btn">
+        <strong>学生演示</strong>
+        <span>student / 123456</span>
       </button>
     </div>
-    <input id="login-user" placeholder="用户名" class="w-full mb-3 px-3 py-2.5 rounded-lg bg-slate-800/80 border border-slate-600 text-sm focus:outline-none focus:border-indigo-400 transition" />
-    <input id="login-pass" type="password" placeholder="密码" class="w-full mb-3 px-3 py-2.5 rounded-lg bg-slate-800/80 border border-slate-600 text-sm focus:outline-none focus:border-indigo-400 transition" />
-    <select id="login-role" class="w-full mb-4 px-3 py-2.5 rounded-lg bg-slate-800/80 border border-slate-600 text-sm focus:outline-none focus:border-indigo-400 transition">
-      <option value="teacher">👩‍🏫 我是教师（查看学情驾驶舱）</option>
-      <option value="student">👨‍🎓 我是学生（学习 + 练一练）</option>
+    <input id="login-user" placeholder="用户名" class="w-full mb-3 form-input" />
+    <input id="login-pass" type="password" placeholder="密码" class="w-full mb-3 form-input" />
+    <select id="login-role" class="w-full mb-4 form-input">
+      <option value="student" selected>学生（注册仅开放学生）</option>
+      <option value="teacher">教师登录（账号由管理员创建）</option>
     </select>
     <div class="flex gap-2">
-      <button onclick="doLogin('login')" class="flex-1 py-2.5 rounded-lg bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white text-sm font-medium transition shadow-lg shadow-indigo-600/25">登 录</button>
-      <button onclick="doLogin('register')" class="flex-1 py-2.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200 text-sm transition">注册新账号</button>
+      <button onclick="doLogin('login')" class="btn btn-primary flex-1">登录</button>
+      <button onclick="doLogin('register')" class="btn btn-ghost flex-1">注册新账号</button>
     </div>
-    <p class="text-[10px] text-slate-500 mt-3 text-center">按 Enter 快速登录 · 按 Esc 关闭弹窗</p>
+    <p class="footnote mt-3 text-center">按 Enter 快速登录 · 按 Esc 关闭弹窗</p>
   </div>
 </div>
 </body>

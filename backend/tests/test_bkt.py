@@ -45,3 +45,16 @@ def test_history_recorded():
     bkt, sid = _fresh_bkt()
     bkt.record_answer(sid, "dp", True)
     assert len(bkt._history.get(sid, [])) == 1
+
+
+def test_wrongbook_does_not_double_deduct_bkt():
+    """回归：错题本 add() 不应再次联动 BKT，否则答错会扣两次分。"""
+    from app.services.wrongbook_service import WrongBookService
+    from app.services.bkt_service import get_bkt
+
+    sid = f"t_{uuid.uuid4().hex[:8]}"
+    wb = WrongBookService()
+    wb.record_result(sid, "quick_sort", {"question": "test"}, "A", False)
+    bkt = get_bkt()
+    assert abs(bkt.get_mastery(sid)["quick_sort"] - 0.20) < 1e-6
+    assert len(bkt._history.get(sid, [])) == 1

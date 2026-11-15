@@ -1,4 +1,5 @@
 """错题本服务 — 记录学生答错的题目，便于回顾"""
+from __future__ import annotations
 import json
 import os
 from datetime import datetime
@@ -29,7 +30,10 @@ class WrongBookService:
             json.dump(self._data, f, ensure_ascii=False, indent=2)
 
     def add(self, student_id: str, concept_id: str, question: dict, student_answer: str, is_wrong: bool = True):
-        """记录错题，同时联动 BKT 降低该知识点掌握度"""
+        """记录错题（不更新 BKT）。
+
+        BKT 更新统一由 record_result 负责一次，避免答错时重复扣分。
+        """
         if not is_wrong:
             return
         item = {
@@ -41,12 +45,6 @@ class WrongBookService:
         self._data.setdefault(student_id, []).append(item)
         self._save()
         logger.info(f"📕 错题本新增: {student_id} / {concept_id}")
-        # 联动 BKT：答错 → 掌握度下降
-        try:
-            from app.services.bkt_service import get_bkt
-            get_bkt().record_answer(student_id, concept_id, correct=False)
-        except Exception as e:
-            logger.error(f"错题本联动 BKT 失败: {e}")
 
     def record_result(self, student_id: str, concept_id: str, question: dict,
                       student_answer: str, correct: bool):

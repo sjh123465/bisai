@@ -1,5 +1,8 @@
 # CodeMentor 整体编排
 # 用法（在仓库根目录）: docker compose -f docker/docker-compose.yml up -d --build
+#
+# 说明：当前镜像不内置 docker CLI，所以学生代码在容器内以 subprocess 方式执行。
+# 这是比赛演示级隔离，不是生产级沙箱；不要在公网环境直接暴露代码执行接口。
 services:
   codementor:
     build:
@@ -11,12 +14,10 @@ services:
     env_file:
       - ../backend/.env
     environment:
-      - SANDBOX_MODE=auto
+      - SANDBOX_MODE=subprocess
       - RATE_LIMIT_PER_MIN=60
     volumes:
       - codementor-data:/app/data
-      # 挂载 docker CLI 与 socket，使后端可启动沙箱容器（嵌套调用）
-      - /var/run/docker.sock:/var/run/docker.sock
     restart: unless-stopped
 
 volumes:

@@ -1,4 +1,8 @@
-"""BKT 知识追踪路由"""
+"""BKT 知识追踪路由（DEPRECATED — 未注册）。
+
+个人学情已迁移到浏览器本地：frontend/js/core/localStore.js。
+保留此文件仅为旧测试/历史参考，路由不会挂载。
+"""
 from fastapi import APIRouter
 from pydantic import BaseModel
 from typing import Optional

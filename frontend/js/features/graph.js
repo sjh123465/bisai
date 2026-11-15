@@ -2,7 +2,9 @@
  * @file 知识图谱力导向可视化与节点检索定位
  * @module features/graph
  */
-import { API, currentStudentId } from '../core/env.js';
+import { API } from '../core/env.js';
+import { escapeHtml, jsStr } from '../core/render.js';
+import { getMastery, getWrongCounts } from '../core/localStore.js';
 
   // ---------- 知识图谱可视化（力导向布局） ----------
   let graphData = null;
@@ -18,15 +20,10 @@ import { API, currentStudentId } from '../core/env.js';
   let graphPrereq = {};         // id -> [前置节点名]
   let graphZoom = 1;
 
-  /** 拉取图谱 hover 需要的联动数据（掌握度 + 错题次数），失败不影响渲染 */
-  async function loadGraphMeta() {
-    const sid = currentStudentId();
-    try {
-      graphMastery = await fetch(API + '/bkt/mastery-map/' + encodeURIComponent(sid)).then(r => r.json());
-    } catch (e) { graphMastery = {}; }
-    try {
-      graphWrong = await fetch(API + '/wrongbook/counts/' + encodeURIComponent(sid)).then(r => r.json());
-    } catch (e) { graphWrong = {}; }
+  /** 图谱 hover 数据全部来自浏览器本地个人学情，不再请求服务端。 */
+  function loadGraphMeta() {
+    graphMastery = getMastery();
+    graphWrong = getWrongCounts();
   }
 
   async function loadGraph() {
@@ -40,7 +37,7 @@ import { API, currentStudentId } from '../core/env.js';
       const resp = await fetch(API + '/knowledge/graph');
       graphData = await resp.json();
       statsEl.textContent = `共 ${graphData.nodes.length} 节点 · ${graphData.edges.length} 边`;
-      await loadGraphMeta();
+      loadGraphMeta();
       rebuildPrereq();
       renderGraph(graphData);
     } catch(e) { statsEl.textContent = '加载失败: ' + e.message; }
@@ -49,23 +46,14 @@ import { API, currentStudentId } from '../core/env.js';
     }
   }
 
-  // 6 类节点颜色 —— 鲜艳饱和色 + hover 高亮用
+  // 6 类节点颜色 —— 低饱和墨阶，选中态统一用朱砂
   const categoryColors = {
-    chapter:    '#818cf8', // 章节 —— 亮紫
-    structure:  '#c084fc', // 数据结构 —— 亮玫紫
-    algorithm:  '#34d399', // 算法 —— 亮翡翠
-    operation:  '#fbbf24', // 操作 —— 亮琥珀
-    paradigm:   '#fb7185', // 范式 —— 亮玫红
-    concept:    '#38bdf8', // 概念 —— 亮天蓝
-  };
-  // 同类型高亮用的辉光颜色（与 categoryColors 同色系但更亮）
-  const categoryGlow = {
-    chapter:    'rgba(129,140,248,0.9)',
-    structure:  'rgba(192,132,252,0.9)',
-    algorithm:  'rgba(52,211,153,0.9)',
-    operation:  'rgba(251,191,36,0.9)',
-    paradigm:   'rgba(251,113,133,0.9)',
-    concept:    'rgba(56,189,248,0.9)',
+    chapter:    '#6B665E',
+    structure:  '#8A7B5C',
+    algorithm:  '#4F6B4A',
+    operation:  '#9A6B2F',
+    paradigm:   '#A8442E',
+    concept:    '#3E5C76',
   };
 
   /**
@@ -184,33 +172,30 @@ import { API, currentStudentId } from '../core/env.js';
       circle.setAttribute('cx', n.x); circle.setAttribute('cy', n.y);
       circle.setAttribute('r', n.r);
       circle.setAttribute('fill', color);
-      circle.setAttribute('stroke', 'rgba(255,255,255,0.35)');
-      circle.setAttribute('stroke-width', 1.5);
+      circle.setAttribute('stroke', 'rgba(251,248,241,0.95)');
+      circle.setAttribute('stroke-width', 1.2);
       circle.setAttribute('class', 'graph-node');
       circle.setAttribute('data-id', n.id);
       circle.setAttribute('data-name', n.name);
       circle.setAttribute('data-category', n.category);
       // 原生 SVG tooltip（hover 显示类型和连接度）
       const deg = degree[n.id] || 0;
-      circle.innerHTML = `<title>📌 ${n.name}\n📂 类型：${catLabels[n.category]||n.category}\n🔗 连接度：${deg}（前置/后继）</title>`;
+      circle.innerHTML = `<title>${escapeHtml(n.name)}\n类型：${escapeHtml(catLabels[n.category] || n.category)}\n连接度：${deg}</title>`;
       circle.onmouseenter = (ev) => {
-        circle.style.filter = `brightness(1.25) drop-shadow(0 0 6px ${categoryGlow[n.category]})`;
-        // 同类型节点同步变亮（群体高亮）
+        circle.setAttribute('stroke', '#A8442E');
+        circle.setAttribute('stroke-width', 2);
+        // 同类型节点保持，其他类型淡出
         Object.values(nodeEls).forEach(ne => {
-          if (ne.circle && ne.circle.dataset.category === n.category) {
-            ne.circle.style.filter = `brightness(1.2) drop-shadow(0 0 4px ${categoryGlow[n.category]})`;
-            ne.circle.style.opacity = '1';
-          } else if (ne.circle) {
-            ne.circle.style.opacity = '0.35';
-          }
+          if (ne.circle) ne.circle.style.opacity = ne.circle.dataset.category === n.category ? '1' : '0.28';
         });
         showGraphTooltip(ev, n, deg, catLabels);
       };
       circle.onmousemove = (ev) => showGraphTooltip(ev, n, deg, catLabels);
       circle.onmouseleave = () => {
-        circle.style.filter = '';
+        circle.setAttribute('stroke', 'rgba(251,248,241,0.95)');
+        circle.setAttribute('stroke-width', 1.2);
         Object.values(nodeEls).forEach(ne => {
-          if (ne.circle) { ne.circle.style.filter = ''; ne.circle.style.opacity = '1'; }
+          if (ne.circle) ne.circle.style.opacity = '1';
         });
         hideGraphTooltip();
       };
@@ -227,12 +212,12 @@ import { API, currentStudentId } from '../core/env.js';
         graphDragState = {node: n, svg, width, height, nodeEls, edgeEls, nodeMap};
       });
       circle.addEventListener('pointerenter', () => {
-        circle.setAttribute('stroke', '#fff');
-        circle.setAttribute('stroke-width', 2.5);
+        circle.setAttribute('stroke', '#A8442E');
+        circle.setAttribute('stroke-width', 2);
       });
       circle.addEventListener('pointerleave', () => {
-        circle.setAttribute('stroke', 'rgba(255,255,255,0.35)');
-        circle.setAttribute('stroke-width', 1.5);
+        circle.setAttribute('stroke', 'rgba(251,248,241,0.95)');
+        circle.setAttribute('stroke-width', 1.2);
       });
     }
 
@@ -288,10 +273,10 @@ import { API, currentStudentId } from '../core/env.js';
       const bg = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
       bg.setAttribute('x', box.x); bg.setAttribute('y', box.y);
       bg.setAttribute('width', w); bg.setAttribute('height', h);
-      bg.setAttribute('rx', 4);
-      bg.setAttribute('fill', 'rgba(15,23,42,0.8)');
-      bg.setAttribute('stroke', 'rgba(99,102,241,0.25)');
-      bg.setAttribute('stroke-width', 0.8);
+      bg.setAttribute('rx', 2);
+      bg.setAttribute('fill', 'rgba(251,248,241,0.92)');
+      bg.setAttribute('stroke', '#DDD5C6');
+      bg.setAttribute('stroke-width', 0.6);
       bg.setAttribute('class', 'graph-label-bg');
       svg.appendChild(bg);
 
@@ -445,12 +430,12 @@ import { API, currentStudentId } from '../core/env.js';
     const wrong = graphWrong[node.id] || 0;
     const prereqs = (graphPrereq[node.id] || []).slice(0, 3);
     tip.innerHTML = `
-      <div class="font-semibold text-slate-100 mb-1">${node.name}</div>
-      <div class="text-slate-400 mb-1.5">${catLabels[node.category] || node.category} · 连接度 ${deg}</div>
+      <div class="font-serif text-sm font-semibold text-slate-100 mb-1">${escapeHtml(node.name || node.id)}</div>
+      <div class="text-slate-400 mb-1.5">${escapeHtml(catLabels[node.category] || node.category)} · 连接度 ${deg}</div>
       <div class="flex items-center justify-between gap-3"><span class="text-slate-400">BKT 掌握度</span>${mastery}</div>
       <div class="flex items-center justify-between gap-3"><span class="text-slate-400">累计错题</span><span class="${wrong ? 'text-rose-300' : 'text-slate-500'}">${wrong ? wrong + ' 次' : '0 次'}</span></div>
-      <div class="mt-1 text-slate-400">前置：${prereqs.length ? prereqs.join('、') : '<span class="text-slate-600">无</span>'}</div>
-      <div class="mt-1.5 text-[10px] text-indigo-300/80">点击 → 让 AI 讲解</div>`;
+      <div class="mt-1 text-slate-400">前置：${prereqs.length ? escapeHtml(prereqs.join('、')) : '<span class="text-slate-600">无</span>'}</div>
+      <div class="mt-1.5 text-[10px] text-accent">点击节点，让 AI 讲解</div>`;
     tip.classList.remove('hidden');
     const r = panel.getBoundingClientRect();
     const left = Math.min(ev.clientX - r.left + 14, r.width - 250);
@@ -472,31 +457,36 @@ import { API, currentStudentId } from '../core/env.js';
     try {
       const resp = await fetch(API + '/knowledge/search?query=' + encodeURIComponent(q) + '&top_k=8');
       const nodes = await resp.json();
-      if (!nodes.length) { box.innerHTML = '<div class="text-xs text-slate-500 p-2">❌ 未找到匹配节点</div>'; box.classList.remove('hidden'); return; }
+      if (!nodes.length) { box.innerHTML = '<div class="text-xs text-slate-500 p-2">未找到匹配节点</div>'; box.classList.remove('hidden'); return; }
       const catLabel = {chapter:'章节', structure:'数据结构', algorithm:'算法', operation:'操作', paradigm:'范式', concept:'概念'};
-      box.innerHTML = nodes.map(n => `
-        <div class="group p-1.5 rounded hover:bg-slate-700/50 text-xs flex items-center gap-2 transition border border-transparent hover:border-indigo-500/30 cursor-pointer"
-             onclick="sendQuick('${n.name}是什么？')">
-          <span class="w-2 h-2 rounded-full flex-shrink-0" style="background:${categoryColors[n.category]||'#6366f1'}"></span>
-          <span class="flex-1 truncate text-slate-200">${highlightMatch(n.name, '${q}')}</span>
-          <span class="text-slate-500 text-[10px]">${catLabel[n.category]||n.category}</span>
-          <button onclick="event.stopPropagation();focusGraphNode('${n.id}')" title="在图谱中定位"
-            class="opacity-0 group-hover:opacity-100 transition px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-300 hover:bg-indigo-500/40 text-[10px] border border-indigo-500/30">🎯</button>
-          <button onclick="event.stopPropagation();sendQuick('${n.name}是什么？')" title="向 AI 提问"
-            class="opacity-0 group-hover:opacity-100 transition px-1.5 py-0.5 rounded bg-slate-600/40 text-slate-300 hover:bg-slate-600 text-[10px]">💬</button>
+      box.innerHTML = nodes.map(n => {
+        const name = n.name || n.id;
+        const ask = name + '是什么？';
+        return `
+        <div class="search-result group" onclick="sendQuick(${jsStr(ask)})">
+          <span class="legend-swatch flex-shrink-0" style="background:${categoryColors[n.category]||'#6B665E'}"></span>
+          <span class="flex-1 truncate">${highlightMatch(name, q)}</span>
+          <span class="text-slate-500 text-[10px]">${escapeHtml(catLabel[n.category]||n.category||'')}</span>
+          <button onclick="event.stopPropagation();focusGraphNode(${jsStr(n.id)})" title="在图谱中定位"
+            class="opacity-0 group-hover:opacity-100 transition p-1 text-slate-400 hover:text-accent"><svg class="cm-icon cm-icon-sm" aria-hidden="true"><use href="#i-target"></use></svg></button>
+          <button onclick="event.stopPropagation();sendQuick(${jsStr(ask)})" title="向 AI 提问"
+            class="opacity-0 group-hover:opacity-100 transition p-1 text-slate-400 hover:text-accent"><svg class="cm-icon cm-icon-sm" aria-hidden="true"><use href="#i-chat"></use></svg></button>
         </div>
-      `).join('');
+      `;
+      }).join('');
       box.classList.remove('hidden');
       // 如果是回车搜索 + 只有 1 条结果 → 直接在图谱中定位
       if (focusOnly && nodes.length === 1) focusGraphNode(nodes[0].id);
     } catch(e) {}
   }
 
-  // 高亮搜索匹配字符（大小写不敏感）
+  // 高亮搜索匹配字符（大小写不敏感）；先转义再高亮，避免节点名/查询词注入 HTML
   function highlightMatch(text, q) {
-    if (!q) return text;
-    const re = new RegExp('(' + q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'gi');
-    return text.replace(re, '<mark style="background:rgba(99,102,241,0.4);color:#c7d2fe;padding:0 2px;border-radius:2px;">$1</mark>');
+    const safeText = escapeHtml(text || '');
+    if (!q) return safeText;
+    const safeQ = escapeHtml(q);
+    const re = new RegExp('(' + safeQ.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'gi');
+    return safeText.replace(re, '<mark>$1</mark>');
   }
 
   // 在图谱 Tab 定位节点（切换 Tab → 刷新图谱 → 用脉冲动画标记）
@@ -510,20 +500,28 @@ import { API, currentStudentId } from '../core/env.js';
     setTimeout(() => {
       const svg = document.getElementById('graph-svg');
       if (!svg) return;
-      const node = svg.querySelector(`.graph-node[data-id="${nodeId}"]`);
+      let node = null;
+      try {
+        node = svg.querySelector(`.graph-node[data-id="${CSS.escape(nodeId)}"]`);
+      } catch (_) { /* 非法选择器时退回线性查找 */ }
+      if (!node) {
+        node = Array.from(svg.querySelectorAll('.graph-node')).find(el => el.dataset.id === nodeId) || null;
+      }
       if (node) {
-        node.style.filter = 'drop-shadow(0 0 8px #fbbf24)';
-        node.style.transition = 'filter 0.5s';
+        node.setAttribute('stroke', '#A8442E');
+        node.setAttribute('stroke-width', 2.5);
         try {
           const pt = svg.createSVGPoint();
           pt.x = parseFloat(node.getAttribute('cx')) || 0;
           pt.y = parseFloat(node.getAttribute('cy')) || 0;
-          const matrix = svg.getScreenCTM().inverse();
           svg.setAttribute('viewBox', `${pt.x - 300} ${pt.y - 200} 600 400`);
           graphZoom = (svg.clientWidth || 900) / 600;
           applyLabelDensity();
         } catch(_) {}
-        setTimeout(() => { node.style.filter = ''; }, 3000);
+        setTimeout(() => {
+          node.setAttribute('stroke', 'rgba(251,248,241,0.95)');
+          node.setAttribute('stroke-width', 1.2);
+        }, 3000);
       } else {
         loadGraph().then(() => setTimeout(() => focusGraphNode(nodeId), 800));
       }

@@ -1,4 +1,7 @@
-"""错题本路由"""
+"""错题本路由（DEPRECATED — 未注册）。
+
+个人错题本已迁移到浏览器本地；教师不可读取。
+"""
 from fastapi import APIRouter
 from pydantic import BaseModel
 from typing import Optional
@@ -25,7 +28,7 @@ class ResultRecord(BaseModel):
 
 @router.post("/add")
 async def add_wrong(item: WrongItem):
-    """记录错题（兼容旧接口，自动联动 BKT 降掌握度）"""
+    """记录错题（兼容旧接口，不更新 BKT）"""
     wb = get_wrongbook()
     wb.add(item.student_id, item.concept_id, item.question, item.student_answer)
     return {"ok": True}

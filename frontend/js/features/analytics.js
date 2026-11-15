@@ -2,8 +2,15 @@
  * @file 学情仪表盘（教师班级视图 / 学生个人视图 / 雷达图 / 热力图 / AI 报告）
  * @module features/analytics
  */
-import { API, currentStudentId } from '../core/env.js';
-import { mdSafe } from '../core/render.js';
+import { mdSafe, escapeHtml } from '../core/render.js';
+import {
+  getMasteryNamed,
+  getWeakPoints,
+  getWrongCountsNamed,
+  getDailyTrend,
+  getTodayStats,
+  loadProfile,
+} from '../core/localStore.js';
 
     // 如果图谱已加载过，直接高亮；否则等加载完
       // 先尝试点击/定位已渲染节点
@@ -12,257 +19,221 @@ import { mdSafe } from '../core/render.js';
 
   // ---------- 学情仪表盘 ----------
   let radarChart, heatmapChart;
+
+  // 图表统一色板：墨阶 + 单一朱砂强调
+  const CHART = {
+    ink: '#1F1D1A',
+    secondary: '#57524A',
+    tertiary: '#857E72',
+    faint: '#A39B8D',
+    line: '#DDD5C6',
+    paper: '#FBF8F1',
+    accent: '#A8442E',
+    success: '#4F6B4A',
+    warning: '#9A6B2F',
+    danger: '#A33A2E',
+    info: '#3E5C76',
+  };
+  const CHART_TOOLTIP = {
+    backgroundColor: CHART.paper,
+    borderColor: CHART.line,
+    borderWidth: 1,
+    textStyle: { color: CHART.secondary, fontSize: 11 },
+    extraCssText: 'box-shadow:0 8px 24px rgba(31,29,26,.08);border-radius:6px;',
+  };
+
+  /** 学生个人视图：全部来自浏览器本地学情，不请求服务端。 */
+  function renderStudentPersonalView() {
+    const named = getMasteryNamed();
+    const profile = loadProfile();
+    const answered = Array.isArray(profile.history) ? profile.history.length : 0;
+    const radarTitle = document.getElementById('radar-title');
+    if (radarTitle) {
+      radarTitle.textContent = answered
+        ? `我的知识点掌握度 · 累计 ${answered} 次答题`
+        : '我的知识点掌握度';
+    }
+    renderRadar(named);
+
+    const heat = {};
+    Object.entries(named).forEach(([name, score]) => {
+      heat[name] = { avg: score, count: 1, low_rate: score < 0.6 ? 1 : 0 };
+    });
+    renderHeatmap(heat);
+
+    const wrongNamed = getWrongCountsNamed();
+    const ranking = Object.entries(wrongNamed)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 10)
+      .map(([name, count]) => ({
+        concept_name: name,
+        concept_id: name,
+        wrong_count: count,
+        student_count: 1,
+      }));
+    renderWrongRanking(ranking, true);
+
+    const wrongHeading = document.getElementById('wrong-ranking-title');
+    if (wrongHeading) wrongHeading.textContent = '我的高频错题 · 仅本地可见';
+    const heatTitle = document.getElementById('heatmap-title');
+    if (heatTitle) heatTitle.textContent = '我的知识点掌握分布';
+    const studentTitle = document.getElementById('student-list-title');
+    if (studentTitle) studentTitle.textContent = '我的本地学习提示';
+
+    renderStudentList([], true);
+  }
+
+  /** 答题后刷新学生个人雷达/热力图/错题（仅在学情 Tab 可见时执行，避免隐藏容器反复计算）。 */
+  function refreshPersonalRadar() {
+    if (localStorage.getItem('cm_role') === 'teacher') return;
+    const panel = document.getElementById('panel-teacher');
+    if (!panel || panel.classList.contains('hidden')) return;
+    renderStudentPersonalView();
+  }
+
   /**
    * 加载学情 Tab：按登录角色渲染班级视图（教师）或个人视图（学生）。
    * @returns {Promise<void>}
    */
   async function loadTeacher() {
     const isTeacher = localStorage.getItem('cm_role') === 'teacher';
-    let classHeatmap = {};
 
-    // 热力图 + 高频错题榜（教师专属）
-    try {
-      const resp = await fetch(API + '/teacher/dashboard');
-      if (resp.status === 403) {
-        renderHeatmap({});
-        renderWrongRanking([]);
-        let hint = document.getElementById('heatmap-hint');
-        if (!hint) {
-          const el = document.getElementById('heatmap-chart');
-          hint = document.createElement('p');
-          hint.id = 'heatmap-hint';
-          hint.className = 'text-xs text-amber-400/80 p-2';
-          hint.textContent = '🔒 班级热力图为教师专属，使用 teacher 账号登录后可见';
-          el.parentElement.insertBefore(hint, el);
-        }
-      } else {
-        const dash = await resp.json();
-        classHeatmap = dash.heatmap || {};
-        renderHeatmap(classHeatmap);
-        renderWrongRanking(dash.wrong_ranking || []);
-      }
-    } catch(e) {
-      renderHeatmap({});
-      renderWrongRanking([]);
+    // 学生视角：全部数据来自浏览器本地，不发任何个人学情请求到服务端
+    if (!isTeacher) {
+      renderStudentPersonalView();
+      return;
     }
 
-    // 雷达图：教师看班级平均掌握度，学生看个人掌握度
-    const radarTitle = document.getElementById('radar-title');
-    if (isTeacher && Object.keys(classHeatmap).length > 0) {
-      radarTitle.textContent = '👥 班级平均掌握度雷达';
-      const classAvg = {};
-      Object.entries(classHeatmap).forEach(([name, info]) => {
-        classAvg[name] = info.avg || 0.3;
-      });
-      renderRadar(classAvg);
-    } else {
-      radarTitle.textContent = '👤 个人掌握度雷达';
-      try {
-        const resp = await fetch(API + '/bkt/mastery/' + encodeURIComponent(currentStudentId()));
-        const mastery = await resp.json();
-        renderRadar(mastery);
-      } catch(e) {
-        const sample = {'红黑树': 0.85, '快速排序': 0.72, '图论': 0.40, '动态规划': 0.55, '链表': 0.92, '二叉树': 0.68, '最短路径': 0.38};
-        renderRadar(sample);
-      }
-    }
-
-    // 学生列表（教师专属）
-    try {
-      const sr = await fetch(API + '/teacher/students');
-      if (sr.status === 403) {
-        renderStudentList([], true);
-      } else {
-        const sd = await sr.json();
-        renderStudentList(sd.students || []);
-      }
-    } catch(e) {
-      renderStudentList([]);
-    }
+    // 教师视角：班级/作业数据由 classroom 模块加载，之后回调本模块渲染图表
+    window.loadTeacherClasses?.();
   }
 
-  function renderStudentList(students, forbidden = false) {
+  /** 教师班级看板：渲染作业维度的雷达 / 热力图 / 错题榜 / 学生完成情况。 */
+  function renderTeacherDashboard(data) {
+    const radarTitle = document.getElementById('radar-title');
+    const heatTitle = document.getElementById('heatmap-title');
+    const wrongTitle = document.getElementById('wrong-ranking-title');
+    const studentTitle = document.getElementById('student-list-title');
+    if (radarTitle) radarTitle.textContent = '班级作业掌握度雷达';
+    if (heatTitle) heatTitle.textContent = '班级作业知识点薄弱分布';
+    if (wrongTitle) wrongTitle.textContent = '作业高频错题榜 · 按班级作业数据';
+    if (studentTitle) studentTitle.textContent = '学生作业完成情况 · 按均分升序';
+
+    if (!data) {
+      renderRadar({});
+      renderHeatmap({});
+      renderWrongRanking([]);
+      renderStudentList([]);
+      window.__teacherDashboard = null;
+      return;
+    }
+    const heatmap = data.heatmap || {};
+    const classAvg = {};
+    Object.entries(heatmap).forEach(([name, info]) => {
+      classAvg[name] = Number(info.avg) || 0;
+    });
+    renderRadar(classAvg);
+    renderHeatmap(heatmap);
+    renderWrongRanking(data.wrong_ranking || []);
+    renderStudentList(data.students || []);
+    window.__teacherDashboard = data;
+    window.__teacherClassId = data.class?.id || window.__teacherClassId;
+    window.refreshDashboard?.();
+    window.loadSideWeak?.();
+  }
+
+  function renderStudentList(students, personal = false) {
     const el = document.getElementById('student-list');
-    if (forbidden) {
-      // 学生视角：不展示冷冰冰的锁，而是引导去练习，让画像有数据
+    if (!el) return;
+    if (personal) {
+      // 学生视角：有数据时展示真实统计；空档案才引导去答题。
+      const named = getMasteryNamed();
+      const concepts = Object.keys(named).length;
+      if (!concepts) {
+        el.innerHTML = `
+        <div class="empty-state" style="padding:28px 16px">
+          <p class="empty-title" style="font-size:18px">这是你的个人学情画像</p>
+          <p class="empty-sub">提交（不是只生成）任意一道练习题后，这里会自动生成画像；日常练习数据只保存在你的浏览器中。</p>
+          <div class="flex flex-wrap items-center justify-center gap-2 mt-4">
+            <button onclick="switchTab('practice')" class="btn btn-primary btn-sm">去做第一道题</button>
+            <button onclick="openProfileDetail()" class="btn btn-ghost btn-sm">打开完整学情档案</button>
+          </div>
+        </div>`;
+        return;
+      }
+      const profile = loadProfile();
+      const weak = getWeakPoints(0.6, 999);
+      const today = getTodayStats();
+      const accuracy = today.accuracy === null ? '—' : Math.round(today.accuracy * 100) + '%';
       el.innerHTML = `
-        <div class="text-center py-4 px-3 rounded-xl bg-gradient-to-br from-indigo-500/10 to-purple-500/10 border border-indigo-500/20">
-          <p class="text-sm text-slate-200 mb-1">👤 这是你的个人学情画像</p>
-          <p class="text-[11px] text-slate-400 mb-3">上方雷达图与右侧进步曲线会随答题自动更新；班级对比需教师账号</p>
-          <button onclick="switchTab('practice')" class="px-4 py-2 rounded-lg bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white text-xs font-medium shadow-lg shadow-indigo-600/25 transition">📝 去做第一道题，生成你的学情画像</button>
+        <div class="row-item" style="flex-direction:column;align-items:flex-start;gap:6px">
+          <p class="text-sm text-slate-200">这是你的个人学情画像</p>
+          <p class="text-[11px] text-slate-400">已记录 ${profile.history.length} 次答题，覆盖 ${concepts} 个知识点，其中薄弱 ${weak.length} 个；数据只保存在你的浏览器中。</p>
+          <p class="text-[11px] text-slate-400">今日已答 ${today.answered} 题，正确率 <span class="text-emerald-300">${accuracy}</span>。</p>
+          <div class="flex flex-wrap gap-2 mt-1">
+            <button onclick="openProfileDetail()" class="btn btn-primary btn-sm">打开完整学情档案</button>
+            <button onclick="switchTab('practice')" class="btn btn-ghost btn-sm">继续练习</button>
+          </div>
         </div>`;
       return;
     }
-    if (students.length === 0) {
+    if (!students || students.length === 0) {
       el.innerHTML = `
         <div class="text-center py-4 px-3 rounded-xl bg-slate-900/60 border border-slate-700/50">
-          <p class="text-xs text-slate-400 mb-2.5">还没有学生答题记录</p>
-          <button onclick="switchTab('practice')" class="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs transition">📝 去练一题，产生第一条数据</button>
+          <p class="text-xs text-slate-400 mb-1">本班还没有作业提交记录</p>
+          <p class="text-[11px] text-slate-500">布置统一作业后，学生完成情况会出现在这里（不读取日常练习数据）</p>
         </div>`;
       return;
     }
     el.innerHTML = students.map((s, idx) => {
-      const pct = Math.round(s.avg_mastery * 100);
-      const color = pct < 40 ? 'text-rose-400' : pct < 70 ? 'text-amber-400' : 'text-emerald-400';
-      const barFrom = pct < 40 ? 'from-rose-500' : pct < 70 ? 'from-amber-500' : 'from-emerald-500';
-      const barTo = pct < 40 ? 'to-red-500' : pct < 70 ? 'to-orange-500' : 'to-teal-500';
+      const score = Math.max(0, Math.min(100, Number(s.avg_score) || 0));
+      const submitted = Number(s.submitted) || 0;
+      const total = Number(s.total_assignments) || 0;
+      const weak = Array.isArray(s.weak_concepts) ? s.weak_concepts : [];
+      const color = score < 40 ? 'text-rose-400' : score < 70 ? 'text-amber-400' : 'text-emerald-400';
+      const tone = score < 40 ? 'is-low' : score < 70 ? 'is-mid' : 'is-high';
       return `
-        <div class="student-row group p-2.5 rounded-lg bg-slate-800/40 hover:bg-slate-700/50 cursor-pointer transition border border-slate-700/30 hover:border-indigo-500/30"
-             onclick="toggleStudentRow(this, '${s.student_id}')">
-          <div class="flex items-center gap-3">
-            <span class="text-[10px] w-5 h-5 rounded-full bg-slate-700/50 text-slate-400 flex items-center justify-center flex-shrink-0 group-hover:bg-indigo-500/20 group-hover:text-indigo-300 transition">${idx+1}</span>
-            <span class="text-sm text-slate-200 w-24 truncate flex-1">${s.student_id}</span>
-            <div class="w-28 h-1.5 bg-slate-700/50 rounded-full overflow-hidden">
-              <div class="h-full bg-gradient-to-r ${barFrom} ${barTo} rounded-full transition-all duration-500" style="width:${pct}%"></div>
+        <div class="student-row">
+          <div class="flex flex-wrap items-center gap-3">
+            <span class="text-[10px] w-5 font-serif text-slate-500 flex-shrink-0">${String(idx + 1).padStart(2, '0')}</span>
+            <span class="text-sm text-slate-200 min-w-[80px] truncate flex-1">${escapeHtml(s.student_id)}</span>
+            <div class="score-track">
+              <span class="${tone}" style="width:${score}%"></span>
             </div>
-            <span class="text-xs ${color} w-10 text-right font-medium">${pct}%</span>
-            <span class="text-[10px] text-slate-500 w-20 text-right">薄弱${s.weak_count} · 错题${s.total_wrong}</span>
-            <span class="text-slate-500 text-xs group-hover:text-indigo-400 transition flex-shrink-0 arrow">▶</span>
+            <span class="text-xs ${color} w-12 text-right font-medium">${score} 分</span>
+            <span class="text-[10px] text-slate-500 w-16 text-right">提交 ${submitted}/${total}</span>
+            <span class="text-[10px] text-slate-500 w-24 text-right">薄弱 ${Number(s.weak_count) || 0} · 错题 ${Number(s.total_wrong) || 0}</span>
           </div>
-          <div class="student-detail hidden mt-3 pt-3 border-t border-slate-700/40">
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <div class="h-40">
-                <div class="text-[10px] text-slate-500 mb-1">📊 掌握度雷达</div>
-                <div class="inline-radar" data-student="${s.student_id}" style="width:100%; height:140px;"></div>
-              </div>
-              <div class="text-xs">
-                <div class="text-[10px] text-slate-500 mb-1">⚠️ 薄弱知识点</div>
-                <div class="inline-weak text-slate-300" data-student="${s.student_id}">加载中...</div>
-              </div>
-            </div>
-          </div>
-        </div>
-      `;
+          ${weak.length ? `<div class="flex flex-wrap gap-1.5 mt-2 pl-7">${weak.map(w =>
+            `<span class="tag tag-warning">${escapeHtml(w)}</span>`
+          ).join('')}</div>` : ''}
+        </div>`;
     }).join('');
   }
 
-  // 学生列表行展开/收起
-  function toggleStudentRow(row, studentId) {
-    const detail = row.querySelector('.student-detail');
-    const arrow = row.querySelector('.arrow');
-    const isHidden = detail.classList.contains('hidden');
-    if (isHidden) {
-      detail.classList.remove('hidden');
-      arrow.textContent = '▼';
-      // 内联渲染雷达图 + 薄弱知识点
-      loadInlineStudentDetail(row, studentId);
-    } else {
-      detail.classList.add('hidden');
-      arrow.textContent = '▶';
-    }
-  }
-
-  // 学生行内联展开：小雷达图 + 薄弱知识点列表
-  async function loadInlineStudentDetail(row, studentId) {
-    const radarBox = row.querySelector('.inline-radar');
-    const weakBox = row.querySelector('.inline-weak');
-    if (!radarBox || radarBox.dataset.loaded) return;
-    radarBox.dataset.loaded = '1';
-    try {
-      const r = await fetch(API + '/teacher/student/' + studentId);
-      const data = await r.json();
-      const bkt = data.bkt || {};
-      const items = Object.entries(bkt);
-      // 雷达图（最多 6 个概念）
-      const radarItems = items.slice(0, 6);
-      const chart = echarts.init(radarBox);
-      chart.setOption({
-        tooltip: { trigger: 'item' },
-        radar: {
-          indicator: radarItems.map(([k]) => ({ name: k.slice(0, 6), max: 1 })),
-          center: ['50%', '55%'], radius: '60%',
-          splitLine: { lineStyle: { color: 'rgba(100,116,139,0.3)' } },
-          axisLine: { lineStyle: { color: 'rgba(100,116,139,0.3)' } },
-          axisName: { color: '#94a3b8', fontSize: 10 },
-          splitArea: { show: false },
-        },
-        series: [{
-          type: 'radar',
-          data: [{ value: radarItems.map(([, v]) => v), areaStyle: { color: 'rgba(99,102,241,0.35)' }, lineStyle: { color: '#818cf8' }, itemStyle: { color: '#818cf8' } }],
-        }],
-        animationDuration: 400,
-      });
-      // 薄弱知识点（掌握度 < 0.6）
-      const weak = items.filter(([, v]) => v < 0.6).sort((a, b) => a[1] - b[1]);
-      if (weak.length === 0) {
-        weakBox.innerHTML = '<span class="text-emerald-400 text-xs">🎉 暂无明显薄弱点</span>';
-      } else {
-        weakBox.innerHTML = weak.slice(0, 5).map(([k, v]) => {
-          const pct = Math.round(v * 100);
-          const rgb = pct < 40 ? '244,63,94' : '251,191,36';
-          return `<div class="flex items-center gap-2 mb-1.5">
-            <span class="text-slate-300 truncate flex-1">${k}</span>
-            <div class="w-14 h-1 rounded-full bg-slate-700 overflow-hidden"><div class="h-full" style="width:${pct}%; background:rgb(${rgb});"></div></div>
-            <span class="text-[10px] text-slate-400 w-8 text-right">${pct}%</span>
-          </div>`;
-        }).join('');
-      }
-    } catch (e) {
-      radarBox.innerHTML = '<div class="text-xs text-rose-400">加载失败</div>';
-    }
-  }
-
-  async function loadStudentDetail(studentId) {
-    try {
-      const r = await fetch(API + '/teacher/student/' + studentId);
-      const d = await r.json();
-      document.getElementById('student-detail').classList.remove('hidden');
-
-      // 雷达图
-      const mastery = d.mastery || {};
-      const names = Object.keys(mastery);
-      const values = names.map(n => Math.round(mastery[n] * 100));
-      const dom = document.getElementById('student-radar');
-      if (names.length >= 3 && window.echarts) {
-        const chart = echarts.init(dom, 'dark');
-        chart.setOption({
-          radar: { indicator: names.map(n => ({name: n, max: 100})), radius: '65%' },
-          series: [{ type: 'radar', data: [{ value: values, name: studentId, areaStyle: {opacity: 0.3} }] }]
-        });
-      } else {
-        dom.innerHTML = '<p class="text-xs text-slate-500">知识点少于3个，无法绘制雷达图</p>';
-      }
-
-      // 薄弱点
-      const weak = d.weak_points || [];
-      document.getElementById('student-weak').innerHTML = weak.length
-        ? '⚠️ 薄弱知识点: ' + weak.map(w => `${w.concept_id}(${Math.round(w.mastery*100)}%)`).join('、')
-        : '✅ 暂无明显薄弱知识点';
-    } catch(e) { console.error(e); }
-  }
-
-  function renderWrongRanking(ranking) {
+  function renderWrongRanking(ranking, personal = false) {
     const el = document.getElementById('wrong-ranking');
     if (!ranking || ranking.length === 0) {
-      el.innerHTML = '<p class="text-xs text-slate-500">📕 暂无错题数据 — 学生在「练一练」答错题目后自动统计</p>';
+      el.innerHTML = personal
+        ? '<p class="text-xs text-slate-500">本地暂无错题 · 个人练习答错后会记录在这里</p>'
+        : '<p class="text-xs text-slate-500">暂无作业错题数据 · 学生提交统一作业后自动统计</p>';
       return;
     }
-    const medals = ['🥇','🥈','🥉','4','5','6','7','8','9','10'];
-    const medalColors = ['text-amber-400','text-slate-300','text-orange-400','text-slate-500','text-slate-500','text-slate-500','text-slate-500','text-slate-500','text-slate-500','text-slate-500'];
     const maxCount = ranking[0].wrong_count;
-    const barColors = [
-      'from-rose-500 to-red-500',
-      'from-orange-500 to-rose-500',
-      'from-amber-500 to-orange-500',
-      'from-amber-400 to-yellow-500',
-    ];
     el.innerHTML = ranking.map((item, i) => {
-      const barCls = i < 3 ? barColors[i] : barColors[3];
       return `
-      <div class="wrong-item group flex items-center gap-3 text-sm p-2 -mx-2 rounded-lg hover:bg-slate-800/40 transition">
-        <span class="w-6 text-center font-bold ${medalColors[i] || 'text-slate-500'}">${medals[i] || (i+1)}</span>
+      <div class="flex items-center gap-3 text-sm py-2 border-b border-slate-700/50 last:border-b-0">
+        <span class="w-6 font-serif text-[10px] text-slate-500">${String(i + 1).padStart(2, '0')}</span>
         <div class="flex-1 min-w-0">
-          <div class="flex justify-between items-center mb-1">
-            <span class="text-slate-200 truncate">${item.concept_name || item.concept_id}</span>
+          <div class="flex justify-between items-center mb-1.5">
+            <span class="text-slate-200 truncate">${escapeHtml(item.concept_name || item.concept_id || '')}</span>
             <div class="flex items-center gap-2 flex-shrink-0">
-              <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-rose-500/20 text-rose-300 border border-rose-500/30">
-                ❌ ${item.wrong_count}
-              </span>
-              <span class="text-[10px] text-slate-500">${item.student_count} 人</span>
+              <span class="tag tag-danger">错 ${Number(item.wrong_count) || 0}${personal ? ' 次' : ''}</span>
+              ${personal ? '' : `<span class="text-[10px] text-slate-500">${Number(item.student_count) || 0} 人</span>`}
             </div>
           </div>
-          <div class="w-full h-2 bg-slate-700/50 rounded-full overflow-hidden">
-            <div class="h-full bg-gradient-to-r ${barCls} rounded-full transition-all duration-500" style="width:${Math.max(8, item.wrong_count/maxCount*100)}%"></div>
+          <div class="wrong-bar">
+            <span style="width:${Math.max(6, item.wrong_count/maxCount*100)}%"></span>
           </div>
         </div>
       </div>`;
@@ -276,21 +247,34 @@ import { mdSafe } from '../core/render.js';
     requestAnimationFrame(() => {
       if (el.clientWidth === 0) return setTimeout(() => renderRadar(mastery), 100);
       radarChart = echarts.init(el, null, {renderer: 'canvas'});
-      const keys = Object.keys(mastery).slice(0, 7);
+      const keys = Object.keys(mastery || {}).slice(0, 7);
+      if (!keys.length) {
+        radarChart.setOption({
+          backgroundColor: 'transparent',
+          title: {
+            text: '暂无练习数据',
+            subtext: '提交题目后自动生成本地学情画像',
+            left: 'center', top: 'middle',
+            textStyle: { color: CHART.tertiary, fontSize: 13, fontFamily: '"Noto Serif SC", "Songti SC", SimSun, serif' },
+            subtextStyle: { color: CHART.faint, fontSize: 11 },
+          },
+        });
+        return;
+      }
       const values = keys.map(k => Math.round((mastery[k] || 0.3) * 100));
       radarChart.setOption({
         backgroundColor: 'transparent',
-        tooltip: {trigger: 'item'},
+        tooltip: { trigger: 'item', ...CHART_TOOLTIP },
         radar: {
           indicator: keys.map(k => ({name: k, max: 100})),
-          axisName: {color: '#cbd5e1', fontSize: 11},
-          splitLine: {lineStyle: {color: '#334155'}},
-          splitArea: {areaStyle: {color: ['#1e293b', '#1e293b']}},
-          axisLine: {lineStyle: {color: '#475569'}},
+          axisName: {color: CHART.secondary, fontSize: 11},
+          splitLine: {lineStyle: {color: CHART.line}},
+          splitArea: {areaStyle: {color: [CHART.paper, '#F6F2E9']}},
+          axisLine: {lineStyle: {color: CHART.line}},
         },
         series: [{
           type: 'radar',
-          data: [{value: values, name: '掌握度', areaStyle: {color: 'rgba(99,102,241,0.3)'}, lineStyle: {color: '#6366f1'}, itemStyle: {color: '#a5b4fc'}}],
+          data: [{value: values, name: '掌握度', areaStyle: {color: 'rgba(168,68,46,0.10)'}, lineStyle: {color: CHART.accent, width: 1.5}, itemStyle: {color: CHART.accent}}],
         }],
       });
     });
@@ -306,41 +290,51 @@ import { mdSafe } from '../core/render.js';
       if (items.length === 0) {
         heatmapChart.setOption({
           backgroundColor: 'transparent',
-          title: {text: '暂无答题数据 — 学生答题后自动更新', left: 'center', top: 'middle', textStyle: {color: '#64748b', fontSize: 13}},
+          title: {text: '暂无答题数据 · 学生答题后自动更新', left: 'center', top: 'middle', textStyle: {color: CHART.tertiary, fontSize: 13, fontFamily: '"Noto Serif SC", "Songti SC", SimSun, serif'}},
         });
         return;
       }
       heatmapChart.setOption({
         backgroundColor: 'transparent',
-        tooltip: {trigger: 'axis', axisPointer: {type: 'shadow'}},
+        tooltip: {trigger: 'axis', axisPointer: {type: 'shadow'}, ...CHART_TOOLTIP},
         grid: {left: 140, right: 20, top: 10, bottom: 30},
-        xAxis: {type: 'value', max: 100, axisLabel: {color: '#94a3b8', formatter: '{value}%'}, splitLine: {lineStyle: {color: '#334155'}}},
-        yAxis: {type: 'category', data: items.map(i => i[0]), axisLabel: {color: '#e2e8f0', fontSize: 11}, axisLine: {lineStyle: {color: '#475569'}}},
+        xAxis: {type: 'value', max: 100, axisLabel: {color: CHART.tertiary, formatter: '{value}%'}, splitLine: {lineStyle: {color: CHART.line}}},
+        yAxis: {type: 'category', data: items.map(i => i[0]), axisLabel: {color: CHART.secondary, fontSize: 11}, axisLine: {lineStyle: {color: CHART.line}}, axisTick: {show: false}},
         series: [{
           type: 'bar',
-          data: items.map(i => ({value: Math.round(i[1].avg*100), itemStyle: {color: i[1].avg < 0.6 ? '#ef4444' : i[1].avg < 0.8 ? '#f59e0b' : '#10b981'}})),
-          barWidth: 14,
+          data: items.map(i => ({value: Math.round(i[1].avg*100), itemStyle: {color: i[1].avg < 0.6 ? CHART.danger : i[1].avg < 0.8 ? CHART.warning : CHART.success}})),
+          barWidth: 10,
+          itemStyle: {borderRadius: [0, 2, 2, 0]},
         }],
       });
     });
   }
 
   async function generateReport() {
+    const classId = window.__teacherClassId || document.getElementById('teacher-class-select')?.value;
+    if (!classId) {
+      alert('请先创建或选择一个班级');
+      return;
+    }
+    if (window.requireLLMConfigured && !window.requireLLMConfigured()) return;
+
     const box = document.getElementById('report-box');
     const content = document.getElementById('report-content');
     box.classList.remove('hidden');
-    content.textContent = '⏳ AI 正在生成学情报告...';
-    // 重置展开按钮状态
+    content.textContent = 'AI 正在基于作业数据生成班级报告...';
     const btn = document.getElementById('report-expand-btn');
-    btn.textContent = '展开 ▼';
+    btn.textContent = '展开';
     content.classList.remove('max-h-none');
     content.classList.add('max-h-96');
     try {
-      const resp = await fetch(API + '/teacher/report');
+      const resp = await fetch(`/api/teacher/classes/${encodeURIComponent(classId)}/report`);
       const data = await resp.json();
-      const report = data.report || '⚠️ 报告生成失败，AI 未返回有效内容，请稍后重试。';
-      content.innerHTML = mdSafe(report);
-    } catch(e) { content.textContent = '❌ ' + e.message; }
+      if (!resp.ok) throw new Error(data.detail || ('HTTP ' + resp.status));
+      content.innerHTML = mdSafe(data.report || '报告生成失败，AI 未返回有效内容，请稍后重试。');
+      if (data.dashboard) renderTeacherDashboard(data.dashboard);
+    } catch (e) {
+      content.textContent = '报告生成失败：' + (e.message || e);
+    }
   }
 
   // 报告展开/收起切换
@@ -350,11 +344,11 @@ import { mdSafe } from '../core/render.js';
     if (content.classList.contains('max-h-none')) {
       content.classList.remove('max-h-none');
       content.classList.add('max-h-96');
-      btn.textContent = '展开 ▼';
+      btn.textContent = '展开';
     } else {
       content.classList.remove('max-h-96');
       content.classList.add('max-h-none');
-      btn.textContent = '收起 ▲';
+      btn.textContent = '收起';
     }
   }
 
@@ -365,57 +359,23 @@ import { mdSafe } from '../core/render.js';
     if (progressChart) progressChart.resize();
   });
 
-  // 初始化
+  // 初始化：HTML 里已有欢迎卡片，这里只初始化右侧边栏/仪表盘
   setTimeout(() => {
-    // 精致欢迎语卡片（独立 HTML，不用 Markdown 流程）
-    const chat = document.getElementById('chat-messages');
-    const wc = document.createElement('div');
-    wc.className = 'welcome-card';
-    wc.innerHTML = `
-      <div class="welcome-title">
-        <div class="w-7 h-7 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center font-bold text-white text-xs">C</div>
-        <span>你好！我是 CodeMentor 🤖</span>
-        <span class="welcome-arrow" id="welcome-arrow">▼</span>
-      </div>
-      <div class="welcome-body collapsed" id="welcome-body">
-        我可以帮你做这几件事：
-        <ul>
-          <li>📖 <b>理论问答</b> — 红黑树、动态规划、图论… 问就完事</li>
-          <li>🐛 <b>代码调试</b> — 贴一段 Python，沙箱运行 + AST 分析死循环/嵌套/复杂度</li>
-          <li>📝 <b>AI 出题 + 双轨批改</b> — 切「练一练」Tab，按知识点生成，沙箱跑 + LLM 解释</li>
-          <li>🖼️ <b>截图答疑</b> — 报错界面、代码截图，Zhipu GLM-4V-Flash 视觉理解</li>
-          <li>🎯 <b>BKT 知识追踪</b> — 每次答题后贝叶斯更新掌握概率，发现你的薄弱点</li>
-          <li>🗺️ <b>图谱 62 节点 / 69 前置关系</b> — 点击节点直接提问，搜索快速定位</li>
-        </ul>
-      </div>
-      <div class="welcome-toggle" id="welcome-toggle">▾ 展开更多能力</div>
-    `;
-    // 点击整张卡片或底部按钮都能切换
-    const toggleWelcome = () => {
-      const body = document.getElementById('welcome-body');
-      const btn = document.getElementById('welcome-toggle');
-      const expanded = body.classList.contains('expanded');
-      if (expanded) {
-        body.classList.remove('expanded'); body.classList.add('collapsed');
-        wc.classList.remove('expanded');
-        btn.textContent = '▾ 展开更多能力';
-      } else {
-        body.classList.remove('collapsed'); body.classList.add('expanded');
-        wc.classList.add('expanded');
-        btn.textContent = '▴ 收起';
-      }
-    };
-    wc.onclick = (e) => {
-      if (e.target.closest('.welcome-toggle') || e.target.closest('.welcome-title')) toggleWelcome();
-    };
-    chat.appendChild(wc);
-    // 初始化右侧边栏（默认对话 Tab）
     window.updateSidebar('chat');
-    // 加载右侧仪表盘
     refreshDashboard();
   }, 300);
 
   // ---------- 右侧动态仪表盘 ----------
+  /** 答题后立即刷新右侧实时数据：只读浏览器本地，不发请求。 */
+  function refreshLocalSideStats() {
+    if (localStorage.getItem('cm_role') === 'teacher') return;
+    const weakEl = document.getElementById('stat-weak');
+    const stuEl = document.getElementById('stat-students');
+    const weak = getWeakPoints(0.6, 999).length;
+    if (weakEl) { weakEl.textContent = weak || '暂无'; weakEl.classList.toggle('text-sm', !weak); }
+    if (stuEl) { stuEl.textContent = '本地'; stuEl.classList.add('text-sm'); }
+  }
+
   async function refreshDashboard() {
     try {
       const g = await fetch('/api/knowledge/graph').then(r => r.json()).catch(() => null);
@@ -423,21 +383,26 @@ import { mdSafe } from '../core/render.js';
         document.getElementById('stat-nodes').textContent = g.nodes?.length ?? '—';
         document.getElementById('stat-edges').textContent = g.edges?.length ?? '—';
       }
-      try {
-        const t = await fetch('/api/teacher/dashboard');
-        if (t.ok) {
-          const d = await t.json();
-          const stuEl = document.getElementById('stat-students');
-          const weakEl = document.getElementById('stat-weak');
+      const role = localStorage.getItem('cm_role');
+      if (role === 'teacher') {
+        // 班级数据由 classroom 模块加载后缓存在 window.__teacherDashboard
+        const d = window.__teacherDashboard;
+        const stuEl = document.getElementById('stat-students');
+        const weakEl = document.getElementById('stat-weak');
+        if (d) {
           const total = d.class_summary?.total_students;
-          stuEl.textContent = total ?? '暂无';
-          stuEl.classList.toggle('text-sm', !total);
+          if (stuEl) { stuEl.textContent = total ?? '暂无'; stuEl.classList.toggle('text-sm', !total); }
           const heatmap = d.heatmap || {};
           const weak = Object.values(heatmap).filter(h => h.avg < 0.6).length;
-          weakEl.textContent = Object.keys(heatmap).length ? weak : '暂无';
-          weakEl.classList.toggle('text-sm', !Object.keys(heatmap).length);
+          if (weakEl) { weakEl.textContent = Object.keys(heatmap).length ? weak : '暂无'; weakEl.classList.toggle('text-sm', !Object.keys(heatmap).length); }
+        } else {
+          if (stuEl) { stuEl.textContent = '暂无'; stuEl.classList.add('text-sm'); }
+          if (weakEl) { weakEl.textContent = '暂无'; weakEl.classList.add('text-sm'); }
         }
-      } catch (_) { /* 未登录时静默 */ }
+      } else {
+        // 学生：显示本地薄弱点数量，不请求任何教师接口
+        refreshLocalSideStats();
+      }
     } catch (e) { console.warn('仪表盘数据加载失败:', e); }
   }
   setInterval(refreshDashboard, 30000);
@@ -445,17 +410,16 @@ import { mdSafe } from '../core/render.js';
   // ---------- 学情右侧栏：近 7 天进步曲线 ----------
   let progressChart = null;
 
-  /** 拉取近 7 天答题趋势并渲染折线（无数据时显示空状态引导） */
-  async function refreshProgressCurve() {
+  /** 近 7 天趋势完全由浏览器本地学情计算，无数据时显示空状态引导。 */
+  function refreshProgressCurve() {
     const box = document.getElementById('progress-chart');
     const empty = document.getElementById('progress-empty');
     const sub = document.getElementById('progress-sub');
     if (!box || typeof echarts === 'undefined') return;
+    const panel = document.getElementById('panel-teacher');
+    if (panel && panel.classList.contains('hidden')) return;
     let trend = [];
-    try {
-      const d = await fetch(API + '/bkt/history/' + encodeURIComponent(currentStudentId()) + '?days=7').then(r => r.json());
-      trend = d.trend || [];
-    } catch (e) { trend = []; }
+    try { trend = getDailyTrend(7); } catch (e) { trend = []; }
 
     const hasData = trend.some(t => t.answered > 0);
     box.style.display = hasData ? '' : 'none';
@@ -471,15 +435,14 @@ import { mdSafe } from '../core/render.js';
     progressChart.setOption({
       backgroundColor: 'transparent',
       grid: { left: 34, right: 10, top: 18, bottom: 22 },
-      tooltip: { trigger: 'axis', backgroundColor: 'rgba(15,23,42,0.95)', borderColor: 'rgba(99,102,241,0.4)', textStyle: { color: '#e2e8f0', fontSize: 11 } },
-      xAxis: { type: 'category', data: labels, axisLine: { lineStyle: { color: '#334155' } }, axisLabel: { color: '#64748b', fontSize: 10 } },
-      yAxis: { type: 'value', max: 100, min: 0, splitLine: { lineStyle: { color: 'rgba(51,65,85,0.5)' } }, axisLabel: { color: '#475569', fontSize: 10, formatter: '{value}%' } },
+      tooltip: { trigger: 'axis', ...CHART_TOOLTIP },
+      xAxis: { type: 'category', data: labels, axisLine: { lineStyle: { color: CHART.line } }, axisTick: { show: false }, axisLabel: { color: CHART.faint, fontSize: 10 } },
+      yAxis: { type: 'value', max: 100, min: 0, splitLine: { lineStyle: { color: CHART.line } }, axisLabel: { color: CHART.faint, fontSize: 10, formatter: '{value}%' } },
       series: [
-        { name: '平均掌握度', type: 'line', smooth: true, data: mastery, symbolSize: 5,
-          lineStyle: { width: 2, color: '#818cf8' }, itemStyle: { color: '#818cf8' },
-          areaStyle: { color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-            { offset: 0, color: 'rgba(129,140,248,0.35)' }, { offset: 1, color: 'rgba(129,140,248,0)' }]) } },
-        { name: '答题数', type: 'bar', data: answered, barWidth: 8, itemStyle: { color: 'rgba(52,211,153,0.55)', borderRadius: [3, 3, 0, 0] } },
+        { name: '平均掌握度', type: 'line', smooth: true, data: mastery, symbolSize: 4,
+          lineStyle: { width: 1.5, color: CHART.accent }, itemStyle: { color: CHART.accent },
+          areaStyle: { color: 'rgba(168,68,46,0.08)' } },
+        { name: '答题数', type: 'bar', data: answered, barWidth: 6, itemStyle: { color: 'rgba(62,92,118,0.30)', borderRadius: [2, 2, 0, 0] } },
       ],
     });
     progressChart.resize();
@@ -488,5 +451,5 @@ import { mdSafe } from '../core/render.js';
   }
 
 // 导出 + 供 HTML 内联 onclick 使用
-export { loadTeacher, refreshDashboard, generateReport, toggleStudentRow, toggleReportExpand, refreshProgressCurve };
-Object.assign(window, { loadTeacher, refreshDashboard, generateReport, toggleStudentRow, toggleReportExpand, refreshProgressCurve });
+export { loadTeacher, refreshDashboard, refreshLocalSideStats, generateReport, toggleReportExpand, refreshProgressCurve, refreshPersonalRadar, renderStudentPersonalView, renderTeacherDashboard };
+Object.assign(window, { loadTeacher, refreshDashboard, refreshLocalSideStats, generateReport, toggleReportExpand, refreshProgressCurve, refreshPersonalRadar, renderStudentPersonalView, renderTeacherDashboard });

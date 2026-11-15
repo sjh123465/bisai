@@ -6,11 +6,11 @@
   // ---------- 发送消息（SSE 流式） ----------
   // ---------- AI 思考阶段指示器 ----------
   const STATUS_META = {
-    planning:   { icon: '🧠', text: '理解问题 · 规划解题思路' },
-    replanning: { icon: '🔁', text: '结合工具结果继续规划' },
-    tool:       { icon: '🔧', text: '调用工具' },
-    tool_done:  { icon: '✅', text: '工具执行完成' },
-    answering:  { icon: '✍️', text: '生成引导回答' },
+    planning:   { text: '理解问题 · 规划解题思路' },
+    replanning: { text: '结合工具结果继续规划' },
+    tool:       { text: '调用工具' },
+    tool_done:  { text: '工具执行完成' },
+    answering:  { text: '生成引导回答' },
   };
 
   function attachStatusBox(wrap) {
@@ -55,12 +55,11 @@
       return;
     }
     closeRunning(box);
-    const meta = STATUS_META[stage] || { icon: '•', text: stage };
+    const meta = STATUS_META[stage] || { text: stage };
     const item = document.createElement('div');
     item.className = 'cm-status-item running';
     if (stage === 'tool') item.dataset.tool = '1';
     item.innerHTML = '<span class="cm-status-spinner"></span>'
-      + `<span class="cm-status-icon">${meta.icon}</span>`
       + '<span class="cm-status-text"></span>';
     item.querySelector('.cm-status-text').textContent = detail || meta.text;
     box.appendChild(item);
@@ -77,7 +76,7 @@
     const details = document.createElement('details');
     details.className = 'cm-status-summary';
     const summary = document.createElement('summary');
-    summary.textContent = `🧠 已完成 ${steps} 步推理${tools ? ` · 工具调用 ${tools} 次` : ''}`;
+    summary.textContent = `已完成 ${steps} 步推理${tools ? ` · 工具调用 ${tools} 次` : ''}`;
     details.appendChild(summary);
     box.parentElement.insertBefore(details, box);
     details.appendChild(box);

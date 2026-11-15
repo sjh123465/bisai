@@ -1,848 +1,369 @@
-# CodeMentor — 基于 Agent 与 GraphRAG 的计算机自适应助学平台
+# CodeMentor — Agent + GraphRAG 自适应学习平台（v2）
 
-> 🧠 懂代码、🗺️ 知图谱、⚡ 能动手的 AI 编程导师 | 大赛参赛作品
+> 🧠 懂代码、🗺️ 知图谱、⚡ 能动手的 AI 编程导师
 >
-> <p align="center"><img src="https://img.shields.io/badge/Python-3.11+-3776AB?logo=python&logoColor=white">
-> <img src="https://img.shields.io/badge/FastAPI-0.115-009688?logo=fastapi&logoColor=white">
-> <img src="https://img.shields.io/badge/Tests-39%2F39%20PASS-10b981?logo=pytest">
-> <img src="https://img.shields.io/badge/Docker-支持-2496ED?logo=docker&logoColor=white">
-> <img src="https://img.shields.io/badge/License-MIT-emerald.svg">
-> <a href="https://gitee.com/shijh1216/CodeMentor"><img src="https://img.shields.io/badge/Gitee-ee5253?logo=gitee&logoColor=white&label=Gitee"></a>
-> <a href="https://github.com/sjh123465/bisai"><img src="https://img.shields.io/badge/GitHub-181717?logo=github&logoColor=white"></a>
-> </p>
+> 学生用自己的远程 API Key，个人练习数据留在浏览器；教师用班级统一作业看学情。
 
-<details><summary><b>👀 点击查看截图预览</b></summary>
+![教师班级看板](docs/screenshots/teacher-dashboard.png)
 
-| 💬 对话 Tab（SSE 流式 + 工具徽章） | 🗺️ 图谱 Tab（62 节点力导向） |
+![学生作业结果](docs/screenshots/student-assignment-result.png)
+
+![个人学情档案](docs/screenshots/profile-detail-final.png)
+
+---
+
+## ✨ 这一版改了什么
+
+相对于旧版，v2 做了四个关键调整：
+
+| 变化 | 说明 |
 |---|---|
-| 截图占位 | 截图占位 |
+| 🔐 **学生自带模型 Key** | 学生在右上角「配置模型」填写 DeepSeek / 智谱 Key；Key 只存在浏览器，请求期间由后端转发，服务端不落盘 |
+| 🏠 **个人练习本地化** | 日常练习的 BKT、错题本、答题历史、个性化题目全部存在浏览器 localStorage，教师接口读不到 |
+| 🏫 **班级统一作业** | 教师可拥有多个班级，通过邀请码加入学生，一次把同一份作业发布给一个或多个班；学生提交一次，服务端判分 |
+| 🧾 **判题方案化** | 出题时 LLM 同时生成一份可执行的 `grading_plan`；之后判分不调用 LLM，按方案确定性执行，无服务端 Key 也能批改 |
 
-| 📝 练一练（AI 出题 + 双轨批改） | 📊 学情驾驶舱（BKT 雷达 + 热力图） |
-|---|---|
-| 截图占位 | 截图占位 |
-
-> 📸 截图：前端零构建 ES Modules 应用，依赖全部本地化（`frontend/vendor/`），离线可运行。
-</details>
+> 详细插件开发约定见 [PLUGIN_DEV.md](PLUGIN_DEV.md)。
 
 ---
 
-## ✨ 核心亮点
+## 核心能力
 
-| 亮点 | 技术 | 解决什么问题 |
-|------|------|-------------|
-| 🧠 **Agent 多轮工具调用** | LLM Function Calling | 不是纯文本套壳 —— AI 自主调度 4 类工具（知识检索 / AST 分析 / 沙箱执行 / 学情推荐），单次提问内最多 3 轮「规划 → 调工具 → 再规划」，苏格拉底式引导 |
-| 🔗 **GraphRAG 双引擎** | NetworkX + ChromaDB + 智谱 embedding-3 | 单一向量搜索缺乏学科结构 —— 图谱做多跳推理，2048 维语义向量做教材原文召回，混合回答 |
-| ⚙️ **AST + LLM 双轨批改** | Python `ast` 模块 | 大模型"猜答案"不准 —— AST 提取客观特征（嵌套循环/递归/死循环/复杂度），LLM 只负责解释 |
-| 🎯 **BKT 式知识追踪** | 简化版掌握度更新 | 静态掌握度不反映真实水平 —— 每次答题后按知识点更新掌握概率（初始 0.3，答对 +0.15，答错 -0.10，夹紧 [0.05, 0.98]） |
-| 🖼️ **多模态截图答疑** | Zhipu GLM-4V-Flash | 编程问题常带截图 —— 直接上传报错/代码截图，视觉模型理解后答疑 |
-| 📺 **SSE 流式全链路** | FastAPI StreamingResponse | 等待 20 秒才出答案体验差 —— Agent 调度 + 回答全部流式输出，`status` 事件实时显示「规划 → 调工具 → 作答」思考阶段，Markdown + 代码高亮实时渲染 |
-
----
-
-## 🏗️ 系统架构
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│  💻  前端（零构建 ES Modules · HTML + TailwindCSS）              │
-│                                                             │
-│  📊 ECharts 学情图  ·  🗺️ SVG 力导向图谱  ·  💬 SSE 流式对话  │
-│  🧩 Marked.js + Highlight.js 代码块（语言标签 + 一键复制）      │
-└────────────────────────┬────────────────────────────────────┘
-                         │ HTTP / SSE / WebSocket
-┌────────────────────────▼────────────────────────────────────┐
-│  🦄  后端（FastAPI · Python 3.11+）                           │
-│                                                             │
-│  ┌────────────────────────────────────────────────────┐     │
-│  │  🧭 Agent 调度器（Function Calling 路由）             │     │
-│  │    ├─ search_knowledge  →  GraphRAGService          │     │
-│  │    ├─ analyze_code_ast  →  ASTService               │     │
-│  │    ├─ execute_code      →  SandboxService           │     │
-│  │    └─ get_learning_path →  BKTService + GraphSvc    │     │
-│  └────────────────────────────────────────────────────┘     │
-│                                                             │
-│  ┌─────────────────┐  ┌─────────────────┐  ┌────────────┐  │
-│  │ 🔗 GraphRAG     │  │ ⚙️ 代码解析      │  │ 🎯 BKT     │  │
-│  │ NetworkX +      │  │ Python AST +    │  │ 简化版      │  │
-│  │ ChromaDB (62节点)│  │ subprocess 沙箱 │  │ 掌握度更新  │  │
-│  └─────────────────┘  └─────────────────┘  └────────────┘  │
-│                                                             │
-│  🛡️ L4 安全层：CORS → 滑动窗口限流 → 请求/错误率监控           │
-└────────────────────────┬────────────────────────────────────┘
-                         │ 文件系统
-┌────────────────────────▼────────────────────────────────────┐
-│  💾 持久化                                                    │
-│                                                             │
-│  📄 JSON：知识图谱 / 学情数据 / 错题本 / 用户（PBKDF2）         │
-│  🗄️  ChromaDB（嵌入式 SQLite）：教材原文向量                   │
-└─────────────────────────────────────────────────────────────┘
-```
-
-### 技术栈一览
-
-| 层级 | 技术 |
-|------|------|
-| **前端** | HTML5 + TailwindCSS + Marked.js + Highlight.js + ECharts 5 + DOMPurify + **原生 ES Modules**（零构建，依赖本地化到 `vendor/`） |
-| **后端** | FastAPI 0.115 + Uvicorn + Pydantic v2 |
-| **AI 模型** | DeepSeek Chat（主 LLM）· Zhipu GLM-4V-Flash（多模态） |
-| **Agent** | 自研 Function Calling 调度器（直接调用 OpenAI 兼容接口，未依赖 LangChain） |
-| **知识图谱** | NetworkX（内存图计算）+ ChromaDB（向量） |
-| **沙箱** | Python subprocess + 危险模块黑名单 + 超时强制终止（Docker 模式可选） |
-| **代码质量** | AST 静态分析（复杂度 / 死循环 / 递归）+ pycodestyle（PEP8 风格检查） |
-| **鉴权** | PBKDF2 密码哈希 + HMAC 签名 Token |
-| **安全** | 滑动窗口限流（60 req/min）· 运行时指标暴露 · **39 单元测试全部通过** |
+- **Agent 多轮工具调度**：`search_knowledge` / `analyze_code_ast` / `execute_code` / `get_learning_path`，最多 3 轮规划 → 调工具 → 再规划，SSE 实时展示思考阶段。
+- **GraphRAG**：62 节点 / 69 条有效关系 + ChromaDB 本地哈希向量检索；图谱提供结构关系，向量提供教材片段。
+- **代码分析**：Python AST 检测嵌套循环、递归、死循环、复杂度启发式；pycodestyle 风格检查。
+- **安全执行**：subprocess 沙箱 + 危险模块黑名单 + 超时；可选 Docker 模式（当前镜像未内置 docker CLI，默认 subprocess）。
+- **个人学情**：本地 BKT 掌握度、错题本、今日统计、近 7 天曲线、图谱 hover 联动；可打开「个人学情档案」逐知识点查看掌握度 / 趋势 / 来源 / 错题，并调用自己的 LLM 生成整体或单知识点分析；支持导出 / 导入 / 清空。
+- **统一作业**：教师多班级、邀请码、作业快照、学生一次提交、服务端确定性判分、教师看板。
+- **判题方案**：选择题答案键、编程题测试用例、AST 规则、关键词规则、PEP8 规则等；按规则权重聚合。
+- **多模态**：智谱 GLM-4V-Flash 截图答疑（需选择智谱 Key）。
+- **零构建前端**：ES Modules + 本地 vendor 依赖，断网可加载；语音提问、响应式布局、图谱缩放/筛选。
 
 ---
 
-## 🧭 Agent 工具详解 — Function Calling 调度链
-
-Agent 不只是"调用一个 API 然后套壳"。它会**自主决策**调度哪些工具、什么顺序传参、什么时候停下来给人看。下面是 4 类核心工具的输入/输出签名：
-
-**多轮调度**：一次提问内最多进行 3 轮「规划 → 调用工具 → 结果喂回 → 再规划」，模型停止请求工具后才流式输出最终回答；若 3 轮后仍在请求工具，会注入收口提示，强制基于已有信息作答（见 `MAX_TOOL_ROUNDS`）。
-
-**思考状态可视化**：每轮的工具调度会通过旁路哨兵（`\x00STATUS\x00`）向 SSE 流插入 `status` 事件，前端渲染成「🧠 理解问题 → 🔧 调用工具 → ✍️ 生成回答」的实时步骤条，回答结束后折叠为一行可展开的推理摘要。状态事件不进入正文，因此不会被当作答案内容。
-
-### 工具 1：`search_knowledge` — GraphRAG 混合检索
-
-```python
-# 输入（function calling 参数）
-{ "query": "红黑树删除操作" }
-
-# 内部执行
-GraphRAGService.retrieve(query, vector_top_k=…) → 图谱命中 + 向量命中
-
-# 返回给 Agent 的内容
-{
-  "graph_hits": [
-    {"id": "rb_delete", "name": "红黑树删除", "category": "operation",
-     "prerequisites": ["rb_insert", "rotation"]}
-  ],
-  "vector_hits": [
-    {"chunk": "红黑树删除后的平衡恢复分 4 种情况...", "score": 0.78}
-  ]
-}
-# 🔗 图谱返回"结构关系"，向量库返回"教材原文"
-```
-
-### 工具 2：`analyze_code_ast` — AST 静态分析
-
-```python
-# 输入
-{ "code": "def quicksort(arr):\n    while True:\n        arr = arr + [1]" }
-
-# 输出（ASTFeatures 数据类字段）
-{
-  "loop_count": 1,
-  "max_loop_depth": 1,               # 最大嵌套循环深度
-  "has_recursion": False,
-  "possible_infinite_loop": True,    # while True 且循环变量未更新
-  "infinite_loop_hint": "⚠️ 检测到 while True 且循环变量未被修改，可能是死循环",
-  "estimated_complexity": "O(n)",    # 基于嵌套层数 + 递归的启发式估算
-  "complexity_reason": "单层循环，通常为线性复杂度"
-}
-# 🔗 纯 AST 提取，不调用 LLM，结果客观稳定
-```
-
-### 工具 3：`execute_code` — 安全执行
-
-```python
-# 输入
-{ "code": "print(sum([1,2,3]))" }
-
-# 输出（ExecuteResult 数据类字段）
-{
-  "success": True,
-  "output": "6\n",
-  "error": "",
-  "timed_out": False,
-  "execution_time": 0.08
-}
-# 🔗 默认 subprocess，DANGEROUS_MODULES 黑名单拦截 24 个模块
-#    （os / subprocess / socket / ctypes / pickle / shutil / multiprocessing …）
-#    Docker 模式下替换为容器隔离（--network none + 资源限制）
-```
-
-### 工具 4：`get_learning_path` — BKT + 图谱联合推荐
-
-```python
-# 输入
-{ "student_id": "demo_student", "topic": "动态规划" }
-
-# 输出
-{
-  "prereqs": ["递归基础", "分治思想", "快速排序"],  # 图谱前置关系
-  "weak_prereqs": ["递归基础"],                     # BKT 掌握度 < 0.6
-  "suggested_path": [
-    {"step": 1, "concept": "递归基础", "mastery": 0.35, "action": "先补这个"},
-    {"step": 2, "concept": "分治思想", "mastery": 0.60, "action": "练 2 道快排变体"},
-    {"step": 3, "concept": "动态规划入门", "mastery": 0.0, "action": "开始 DP"}
-  ]
-}
-# 🔗 图谱决定"先学什么"，BKT 决定"谁需要补"
-```
-
-### Agent 调度流程（实际运行时）
+## 系统架构
 
 ```
-用户: "我写的快排为啥超时了？"
-  │
-  ▼
-🧠 Agent 判断意图 → "代码调试 + 复杂度分析"
-  │
-  ├─ Step 1 调用 search_knowledge("快排超时原因")
-  │         → 拿到 O(n²) 最坏情况、退化成链表的例子
-  │
-  ├─ Step 2 调用 analyze_code_ast(用户代码)
-  │         → max_loop_depth=0, has_recursion=True
-  │         → estimated_complexity 提示递归带来的高复杂度
-  │
-  ├─ Step 3 调用 execute_code(用户代码)
-  │         → success=True，但 execution_time 明显偏长
-  │
-  └─ Step 4 综合回答（苏格拉底式）：
-           "你选的 pivot 是 arr[0] 对吧？
-            当数组已经有序时，每次只排除一个元素 → 递推式 T(n)=T(n-1)+n → O(n²)
-            试试 random pivot 或三数取中 pivot？"
+┌─ 浏览器（学生）──────────────────────────────────────┐
+│  模型 Key（session/localStorage，仅本地）              │
+│  BKT / 错题本 / 历史 / 个性化练习（localStorage）       │
+│  作业列表 / 作答 / 本地学情合并                        │
+└──────────────┬──────────────────────────────────────┘
+               │ 请求头 X-LLM-*（仅单次请求使用）
+┌──────────────▼──────────────────────────────────────┐
+│  FastAPI 后端                                        │
+│  ├─ LLM 网关（请求级配置，不保存 Key）                 │
+│  ├─ Agent（工具调度 + 本地学情摘要，不持久化）          │
+│  ├─ 出题：LLM 生成题目 + grading_plan                 │
+│  ├─ 判题：PlanBasedGrader（不调用 LLM）                │
+│  ├─ GraphRAG：NetworkX + ChromaDB（本地哈希 384 维）   │
+│  ├─ AST / pycodestyle / subprocess 沙箱               │
+│  └─ 班级域：classroom.json                             │
+└──────────────┬──────────────────────────────────────┘
+               │
+┌──────────────▼──────────────────────────────────────┐
+│  data/：users.json · classroom.json · 知识图谱 · Chroma │
+└──────────────────────────────────────────────────────┘
 ```
+
+### 数据边界
+
+| 数据 | 存放位置 | 教师可见 |
+|---|---|---|
+| 日常练习 BKT / 错题本 / 历史 / 个性化题目 | 学生浏览器 localStorage（按用户名分区） | ❌ |
+| 班级、统一作业、学生提交、作业分数 | 服务端 `backend/data/classroom.json` | ✅（仅自己班级） |
+| 用户账号 / 密码哈希 | 服务端 `backend/data/users.json` | — |
+| 模型 API Key | 浏览器 session/localStorage | ❌（服务端不持久化） |
+| 知识图谱 / 向量库 | 服务端 data/ | — |
+
+> 教师看板只使用**作业数据**，不会读取学生日常练习。个人练习结果可以在学生端合并到本地 BKT，但不会上传。
+
+> 个性化对话/出题时，浏览器会把一份简要学情摘要（薄弱点、错题数）随单次请求发送给后端和 LLM，仅用于当前生成，不持久化，教师接口不接收。
 
 ---
 
-## 🎮 5 分钟极速体验
+## 快速开始
 
-```bash
-# Clone + 后端 + 启动 —— 就这三步
-git clone https://github.com/sjh123465/bisai.git && cd bisai/backend
-python -m venv .venv && .venv\Scripts\activate
-pip install -r requirements.txt && copy .env.example .env && python -m uvicorn app.main:app --port 8080
+### 环境
 
-# 另开终端跑 pytest 看 39/39
-cd bisai/backend && .venv\Scripts\activate && pytest tests/ -v
-```
+- **Python 3.11 / 3.12**（当前依赖在 Python 3.13 上可能装不上）
+- 无需 Node.js（前端零构建；vendor 已本地化）
+- Docker 可选
 
-浏览器打开 `http://localhost:8080/static/index.html` → 点「👩‍🏫 教师演示」一键填充 → 登录。
-
----
-
-## 🚀 快速开始
-
-### 方式一：Docker Compose（推荐）
-
-```bash
-git clone https://github.com/sjh123465/bisai.git
-cd bisai
-# 编辑 backend/.env 填入 LLM_API_KEY，然后：
-docker compose -f docker/docker-compose.yml up -d --build
-# 前端已打包进镜像（/app/frontend），无需额外挂载
-# 访问 http://localhost:8080/static/index.html
-```
-
-### 方式二：源码运行
-
-```bash
-# 1. 克隆仓库
-git clone https://github.com/sjh123465/bisai.git
-cd bisai/backend
-
-# 2. 创建虚拟环境
-python -m venv .venv
-# Windows:
-.venv\Scripts\activate
-# macOS/Linux:
-source .venv/bin/activate
-
-# 3. 安装依赖
-pip install -r requirements.txt
-
-# 4. 配置 API Key
-copy .env.example .env          # Windows
-# cp .env.example .env          # macOS/Linux
-# 编辑 .env，填入 LLM_API_KEY（必需）、MULTIMODAL_API_KEY（可选）
-
-# 5. 启动后端
-python -m uvicorn app.main:app --host 0.0.0.0 --port 8080
-
-# 6. 打开浏览器
-#    前端界面：http://localhost:8080/static/index.html
-#    API 文档：http://localhost:8080/docs
-#    健康检查：http://localhost:8080/health
-```
-
-### 方式三：一键脚本（Windows PowerShell）
-
-```powershell
-cd bisai/backend
-pip install -r requirements.txt
-@"
-LLM_API_KEY=sk-你的deepseekkey
-LLM_BASE_URL=https://api.deepseek.com/v1
-LLM_MODEL=deepseek-chat
-MULTIMODAL_API_KEY=你的智谱key  # 可选
-"@ | Out-File -FilePath .env -Encoding utf8
-python -m uvicorn app.main:app --host 0.0.0.0 --port 8080
-```
-
-### 🌐 访问地址
-
-| 资源 | URL |
-|------|-----|
-| 前端界面 | `http://localhost:8080/static/index.html` |
-| OpenAPI 文档 | `http://localhost:8080/docs` |
-| 健康检查 | `http://localhost:8080/health` |
-| 运行指标（教师） | `http://localhost:8080/api/metrics` |
-
-### 🔑 演示账号
-
-| 角色 | 用户名 | 密码 | 权限 |
-|------|--------|------|------|
-| 👩‍🏫 教师 | `teacher` | `123456` | 学情驾驶舱 + LLM 报告 + 指标监控 |
-| 👨‍🎓 学生 | `student` | `123456` | 对话 + 练一练 + 错题本 |
-
-> 💡 登录弹窗支持**一键填充** —— 点击「👩‍🏫 教师演示」或「👨‍🎓 学生演示」按钮自动填入账号密码。
-
----
-
-## 🧩 功能地图
-
-### 💬 对话 Tab — Agent Function Calling
-
-| 能力 | 触发方式 | Agent 内部调度 |
-|------|---------|---------------|
-| 📖 理论问答 | "什么是红黑树？" | GraphRAG（图谱 + 向量混合检索） |
-| 🐛 代码调试 | 贴入报错代码 | 沙箱运行 → AST 静态分析 → 苏格拉底引导 |
-| 🖼️ 截图答疑 | 点击"截图提问"上传图片 | 多模态视觉模型理解图片 → 结合图谱讲解 |
-| 📚 学习路径 | "图论我该先学什么？" | BKT 薄弱点 + 图谱前置关系 → 推荐序列 |
-| 🎤 语音提问 | 点输入框旁麦克风按钮说话 | 浏览器 Web Speech API 中文识别 → 实时上屏 → 识别结果自动填入输入框 |
-| 🔗 图谱节点点击 | 在图谱 Tab 点击节点 | 自动跳转到对话 Tab，发送该节点提问 |
-| 🎯 欢迎卡片 | 打开即见，点卡片直接示例提问 | 知识问答 / 代码调试 / 出题练习 / 学习规划 4 张卡片，答辩免手敲 |
-| 🧠 知识点追踪 | 无需操作 | 右侧栏自动累积本次对话命中的图谱节点，点标签跳图谱 |
-
-### 📝 练一练 Tab — AI 出题 + 双轨批改
-
-| 能力 | 说明 |
-|------|------|
-| 🎲 单题生成 | 选择知识点 + 题型（选择/判断/编程）+ **难度（简单/中等/困难）** → AI 自动出题 |
-| 📄 批量试卷 | 一次生成 5 题，逐题作答，进度条实时显示 |
-| ✅ 双轨批改 | **沙箱运行结果** + **AST 特征分析** → LLM 结构化评分 |
-| 📕 错题重做 | 自动收集错题到错题本，支持针对性重做 |
-| 💡 查看提示 | 不想直接看答案？让 AI 逐步引导 |
-| 🌱 新手入门路径 | 数组 → 栈 → 递归 三级引导，一键开练，解决"不知道从哪开始" |
-| 🔍 PEP8 检查 | pycodestyle 逐行给出规则码与修正建议（E501 行过长 / W291 行尾空白…） |
-| ⌨️ 编辑器快捷键 | `Ctrl + Enter` 提交批改 · `Tab` 插入两空格，贴近真实 IDE 手感 |
-
-### 🗺️ 图谱 Tab — 学科知识图谱
-
-- **62 节点**覆盖 6 大类别（章节 / 数据结构 / 算法 / 操作 / 范式 / 概念）
-- **69 条前置关系**（学习路径推理）
-- SVG 力导向布局 · 节点拖拽 · 节点大小按度数加权 · 点击节点直接提问
-- **滚轮缩放 + 标签密度自适应**：缩小时只保留连接度高的节点名称，放大后展示全部标签，避免 62 个标签挤成一团
-- **分类筛选**：点击右侧图例可隐藏 / 显示某一类节点（如只看「算法」），演示更聚焦
-- **数据联动 hover**：浮层展示 BKT 掌握度、前置知识点、累计错题次数，图谱不再是纯展示
-- **快速搜索**（右侧栏）：实时搜索 → 高亮匹配字符 → 一键在图谱中定位 🎯
-
-### 📊 学情 Tab — BKT 驾驶舱
-
-| 组件 | 数据源 | 说明 |
-|------|--------|------|
-| 📈 掌握度雷达图 | BKT | 学生各知识点掌握概率（简化版增量更新） |
-| 🔥 薄弱热力图 | 班级聚合 | 全班各知识点薄弱率（< 60% 为薄弱） |
-| 📕 高频错题榜 | 错题本 | 按知识点聚合全班答错次数排名 |
-| 👥 学生学情列表 | BKT + 错题本 | 按薄弱程度升序，点击查看详情雷达 |
-| 🤖 LLM 学情报告 | 全部数据 + LLM | 自动生成 Markdown 报告（概述/薄弱点/改进建议） |
-| 📈 近 7 天进步曲线 | BKT 答题历史重放 | 右侧栏折线（平均掌握度）+ 柱状（每日答题数），无数据时给「去做第一道题」引导 |
-| 👤 学生端空状态 | — | 不再显示锁，改为「这是你的个人学情画像」+ 一键跳练一练的强引导 |
-
-### ⚡ 右侧栏 — 按 Tab 差异化
-
-| Tab | 右侧栏内容 |
-|-----|-----------|
-| 💬 对话 | 🧠 本次对话涉及知识点（自动累积 + 点击跳图谱）· 图谱节点搜索 |
-| 📝 练一练 | 📅 今日练习数据（答题数 / 正确率 / 连续答对）· 热门知识点一键出题 |
-| 🗺️ 图谱 | ⚡ 图谱实时数据（节点 / 关联 / 薄弱 / 活跃学生，30 秒自动刷新）· 分类图例 · 节点搜索 |
-| 📊 学情 | 📈 近 7 天进步曲线 · 🔥 薄弱知识点 Top 3 |
-
-> 无数据时统一显示「暂无」并给下一步引导，不再用 `-` 或空白占位。
-
----
-
-## 📖 API 速查表
-
-所有 API 前缀 `/api`，需鉴权的接口在表中标注 🔐（登录后自动注入 `Authorization: Bearer <token>`）。
-
-### 🔐 鉴权
-
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| POST | `/api/auth/login` | 登录，返回 `token` |
-| POST | `/api/auth/register` | 注册（student / teacher 角色） |
-| GET | `/api/auth/me` 🔐 | 当前登录用户信息 |
-
-### 💬 Agent 对话（SSE 流式）
-
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| POST | `/api/chat/stream` | Agent 流式对话，SSE 事件类型：`start` / `status`（思考阶段）/ `chunk` / `end` |
-| POST | `/api/chat/quick` | 非流式快速问答（一次性返回完整答案） |
-
-### 🗺️ 知识图谱
-
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| GET | `/api/knowledge/graph` | 获取完整图谱（节点 + 边 + 统计） |
-| GET | `/api/knowledge/stats` | 图谱统计（节点数 / 边数 / 分类分布） |
-| GET | `/api/knowledge/nodes` | 节点列表（可按分类过滤） |
-| GET | `/api/knowledge/search?query=` | 关键词搜索节点 |
-| GET | `/api/knowledge/node/{node_id}` | 节点详情 + 前置 / 后继 |
-| POST | `/api/knowledge/nodes` | 新增节点 |
-| POST | `/api/knowledge/edges` | 新增边 |
-
-### ⚙️ 代码分析
-
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| POST | `/api/code/analyze` | AST 静态分析（死循环 / 嵌套 / 递归 / 复杂度） |
-| POST | `/api/code/style` | PEP8 风格检查（pycodestyle，返回行号 + 规则码；未安装时自动降级为基础规则） |
-| POST | `/api/code/execute` | 沙箱执行 Python 代码 |
-| POST | `/api/code/test` | 沙箱执行 + 测试用例比对 |
-
-### 📝 出题与批改
-
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| POST | `/api/exam/generate` | AI 单题生成（字段：`concept` + `qtype` + `difficulty`：easy/medium/hard） |
-| POST | `/api/exam/paper` | AI 批量生成试卷（字段：`concepts` + `count` + `qtypes`） |
-| POST | `/api/exam/grade` | 双轨批改（代码 + 测试用例 → 沙箱 + AST + LLM 评分） |
-
-### 🎯 BKT 知识追踪
-
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| GET | `/api/bkt/mastery/{student_id}` | 学生各知识点掌握概率 |
-| GET | `/api/bkt/weak/{student_id}` | 学生薄弱知识点 Top-N |
-| GET | `/api/bkt/heatmap` | 班级掌握度热力图数据 |
-| POST | `/api/bkt/record` | 答题后更新掌握度（`student_id` + `concept_id` + `correct`） |
-| GET | `/api/bkt/history/{student_id}` | 近 N 天答题趋势（答题数 / 正确率 / 平均掌握度），供进步曲线 |
-| GET | `/api/bkt/today/{student_id}` | 今日练习统计（答题数 / 正确率 / 连续答对） |
-| GET | `/api/bkt/mastery-map/{student_id}` | 按节点 ID 返回掌握度（图谱 hover 联动） |
-
-### 👩‍🏫 教师端 🔐（整组需 teacher 角色）
-
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| GET | `/api/teacher/dashboard` | 班级聚合数据（热力图 + 统计 + 概览） |
-| GET | `/api/teacher/wrong-top` | 高频错题榜（按知识点聚合） |
-| GET | `/api/teacher/students` | 学生列表（按薄弱度排序） |
-| GET | `/api/teacher/student/{student_id}` | 单个学生详情（BKT + 错题） |
-| GET | `/api/teacher/report` | LLM 自动生成学情 Markdown 报告 |
-
-### 🖼️ 多模态
-
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| POST | `/api/multimodal/analyze` | 图片理解（`image` Base64 data URL + `question`），内部结合 GraphRAG |
-
-### 📕 错题本
-
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| GET | `/api/wrongbook/list/{student_id}` | 学生错题列表 |
-| GET | `/api/wrongbook/retry/{student_id}?limit=10` | 获取可重做错题 |
-| GET | `/api/wrongbook/counts/{student_id}` | 各知识点错题计数 |
-| POST | `/api/wrongbook/add` | 记录错题 |
-| POST | `/api/wrongbook/record` | 答题结果记录（前端主用） |
-| DELETE | `/api/wrongbook/clear/{student_id}` | 清空学生错题本 |
-
-### 🛠️ 系统
-
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| GET | `/health` | 健康检查（含运行指标） |
-| GET | `/api/metrics` 🔐 | 运行指标快照（teacher 角色） |
-
-### 💾 数据文件
-
-后端首次启动时自动初始化：
-
-| 文件 | 来源 | 说明 |
-|------|------|------|
-| `data/knowledge_graph.json` | 种子脚本生成 | 62 节点 + 69 边 |
-| `data/chroma/` | 种子脚本生成 | ChromaDB 向量库（教材原文） |
-| `data/users.json` | 内置 + 注册 | teacher / student 两个演示账号 |
-| `data/bkt_data.json` | 内置 | demo_student / test_user 的初始 BKT 数据 |
-| `data/wrong_book.json` | 运行时生成 | 错题记录 |
-
----
-
-## 📂 项目结构
-
-```
-CodeMentor/
-├── 🐳 docker/
-│   ├── Dockerfile.backend       # 后端镜像（python:3.11-slim + 依赖预装）
-│   ├── Dockerfile.sandbox       # 沙箱镜像（non-root + 最小 Python）
-│   └── docker-compose.yml       # 一键编排
-│
-├── ⚙️ backend/
-│   ├── app/
-│   │   ├── main.py              # FastAPI 入口（CORS / 限流 / 监控 / 路由注册 / 静态挂载）
-│   │   │
-│   │   ├── core/
-│   │   │   ├── config.py        # pydantic-settings 配置（.env 加载）
-│   │   │   ├── security.py      # PBKDF2 密码哈希 + HMAC Token + 角色鉴权
-│   │   │   ├── ratelimit.py     # 滑动窗口限流（默认 60 req/min）
-│   │   │   ├── metrics.py       # 请求计数 / 错误率 / 延迟监控
-│   │   │   ├── logger.py        # 统一日志（带 uvicorn 兼容）
-│   │   │   └── seed_knowledge.py # 62 节点 / 69 边种子数据 + 向量库初始化
-│   │   │
-│   │   ├── agents/
-│   │   │   └── agent_service.py # Agent Function Calling 调度器（4 类工具 + 历史压缩）
-│   │   │
-│   │   ├── services/
-│   │   │   ├── llm_service.py   # 主 LLM 调用 + Embedding（智谱 embedding-3，失败降级本地哈希）
-│   │   │   ├── graph_service.py  # NetworkX 图谱 CRUD + 搜索 + 前置推理
-│   │   │   ├── vector_service.py # ChromaDB 向量检索
-│   │   │   ├── graphrag_service.py # 图谱 + 向量混合检索
-│   │   │   ├── ast_service.py    # Python AST 分析（死循环/嵌套/递归/复杂度）
-│   │   │   ├── sandbox_service.py # subprocess 沙箱（黑名单 + 超时 + Docker 模式）
-│   │   │   ├── bkt_service.py    # 掌握度更新（简化版 BKT：初始 0.3 / 正确 +0.15 / 错误 -0.10）
-│   │   │   ├── exam_service.py   # AI 题目生成
-│   │   │   ├── grading_service.py # 双轨批改（沙箱 + AST + LLM 解释）
-│   │   │   ├── multimodal_service.py # Zhipu GLM-4V-Flash 图片理解
-│   │   │   └── wrongbook_service.py  # 错题本
-│   │   │
-│   │   └── routers/              # FastAPI 路由层（按功能拆分）
-│   │       ├── auth.py           # 登录 / 注册
-│   │       ├── chat.py           # SSE 流式对话
-│   │       ├── knowledge.py      # 图谱 CRUD + 搜索
-│   │       ├── code.py           # 沙箱运行 / AST 分析 / 批改
-│   │       ├── exam.py           # 出题 + 试卷
-│   │       ├── bkt.py            # 掌握度查询 + 更新
-│   │       ├── teacher.py        # 驾驶舱 + LLM 学情报告（🔐 teacher）
-│   │       ├── multimodal.py     # 图片理解
-│   │       ├── wrongbook.py      # 错题本
-│   │       └── metrics_router.py # 运行指标暴露
-│   │
-│   ├── data/                     # 💾 运行时数据（.gitignore 忽略）
-│   │   ├── knowledge_graph.json
-│   │   ├── chroma/
-│   │   ├── bkt_data.json
-│   │   ├── wrong_book.json
-│   │   └── users.json
-│   │
-│   ├── tests/                     # 🧪 测试套件（39 项）
-│   │   ├── conftest.py           # 临时数据目录 fixture
-│   │   ├── test_api.py           # API 端点测试
-│   │   ├── test_ast.py           # AST 分析正确性
-│   │   ├── test_bkt.py           # BKT 数学更新
-│   │   ├── test_sandbox.py       # 沙箱隔离
-│   │   ├── test_security.py      # Token / 哈希
-│   │   └── test_ratelimit.py     # 限流行为
-│   │
-│   ├── .env.example              # 📋 配置模板
-│   └── requirements.txt          # 📦 依赖（15 项，含 pycodestyle）
-│
-└── 🎨 frontend/
-    ├── index.html                # 🖼️ 页面骨架 + 样式 + 内联结构（约 600 行）
-    ├── js/
-    │   ├── app.js                # 🚀 主入口：认证 / Tab / SSE 对话 / 代码面板 / 多模态
-    │   ├── core/
-    │   │   ├── env.js            # 🌐 API 常量 + 当前学生 ID
-    │   │   ├── render.js         # 🧩 Markdown 渲染 / XSS 消毒 / 代码高亮 / 消息气泡
-    │   │   └── status.js         # 🧠 AI 思考阶段指示器
-    │   └── features/
-    │       ├── graph.js          # 🗺️ 力导向图谱渲染 + 节点检索定位
-    │       ├── exam.js           # 📝 出题 / 试卷 / 双轨批改 / 错题重练
-    │       ├── analytics.js      # 📊 学情仪表盘 / 雷达图 / 热力图 / AI 报告
-    │       └── voice.js          # 🎤 语音提问（Web Speech API）
-    └── vendor/                   # 📦 本地依赖（Tailwind / Marked / DOMPurify / Highlight.js / ECharts）
-```
-
----
-
-## 🧪 测试
+### 源码运行
 
 ```bash
 cd backend
-pytest tests/ -v
+python -m venv .venv
+# Windows
+.venv\Scripts\activate
+# macOS/Linux
+# source .venv/bin/activate
+
+pip install -r requirements.txt
+copy .env.example .env          # Windows
+# cp .env.example .env          # macOS/Linux
+
+# 可选：生成教师班级 + 作业 + 8 份演示提交（不需要 API Key）
+python scripts/seed_demo.py
+
+python -m uvicorn app.main:app --host 0.0.0.0 --port 8080
 ```
 
-当前 **39 项测试全部通过**，覆盖：
+打开：
 
-| 模块 | 测试内容 |
-|------|---------|
-| `test_api` | 对话 / 图谱 / 学情 / 登录端点可达性 |
-| `test_ast` | 死循环检测 / 嵌套循环计数 / 递归识别 / 复杂度估算 |
-| `test_bkt` | 掌握度更新正确性 / 边界夹紧 [0.05, 0.98] |
-| `test_sandbox` | subprocess 执行 / 危险模块拦截 / 超时强制终止 |
-| `test_security` | PBKDF2 哈希 / HMAC Token 签名 + 验证 |
-| `test_ratelimit` | 滑动窗口限流 / 豁免路径 |
+- 前端：`http://localhost:8080/static/index.html`
+- API 文档：`http://localhost:8080/docs`
+- 健康检查：`http://localhost:8080/health`
 
----
+**首次使用**：
 
-## 🎯 答辩演示脚本（推荐）
+1. 点击右上角 **⚙️ 配置模型**；
+2. 选择 DeepSeek 或智谱 GLM，填入自己的远程 API Key；
+3. 点「测试连接」→「保存配置」；
+4. 登录 `teacher/123456` 或 `student/123456`。
 
-| # | 操作 | 展示能力 | 预估时长 |
-|---|------|---------|---------|
-| 1 | 打开前端 → 指着欢迎区 4 张能力卡片 | 知识问答 / 代码调试 / 出题练习 / 学习规划，点卡片即刻演示 | 15s |
-| 2 | 登录 teacher/123456 | 一键填充 + 角色路由 | 10s |
-| 3 | 切到 🗺️ 图谱 Tab → 滚轮缩放 → hover 节点 → 点图例「算法」 | 62 节点力导向图 · 缩小只留重要标签 · hover 显示 BKT 掌握度/前置/错题 · 按类型筛选 | 40s |
-| 4 | 切回 💬 对话 → 问"红黑树和 AVL 有什么区别？" | Agent 多轮调度（规划 → 调工具 → 再规划）· **思考步骤条实时可见** · 流式输出 · 右侧「本次对话涉及知识点」同步累积 | 60s |
-| 5 | 附加代码 → 粘一段含死循环的快排 → 点"AI 辅导" | 沙箱超时 → AST 定位死循环 → 苏格拉底引导 | 45s |
-| 6 | 切到 📝 练一练 → 点"🟢 ① 数组"入门 → 再选「🔴 困难」+ 编程题 | 新手入门路径 · 难度可控 · 代码编辑器 | 40s |
-| 7 | 写答案 → 先点"🔍 PEP8 检查" → 再"提交批改"（或 Ctrl+Enter） | 格式问题逐行提示 → 双轨批改 · AST 特征 + LLM 解释 | 40s |
-| 8 | 切到 📊 学情 → 点"🤖 LLM 生成报告" | BKT 雷达图 + 热力图 + AI 学情报告（Markdown）+ 右侧「近 7 天进步曲线」 | 60s |
-| 9 | 右侧栏搜索"红黑树" → 点 🎯 定位 | 搜索高亮 → 图谱自动聚焦 + 脉冲动画 | 15s |
-| 10 | 图谱 Tab 右侧数据卡（节点 62 / 关联 69 / 薄弱 / 活跃） | 图谱规模实时数据 · 每 30s 自动刷新 | 10s |
-| 11 | 点输入框旁 🎤 说"什么是栈？" | 语音提问（Web Speech API 中文识别，实时上屏） | 15s |
-| 12 | 切换 4 个 Tab 看右侧栏 | 按 Tab 差异化：对话=命中知识点 · 练一练=今日答题/正确率/连续答对 · 学情=7 天曲线 · 图谱=规模 | 20s |
-| 13 | 浏览器窗口缩到平板/手机宽度 | 响应式布局（顶栏换行、图表自适应） | 15s |
-| 14 | 断网后刷新页面 | 依赖本地化：无外网也能完整加载（Tailwind / ECharts / 高亮全部在 `vendor/`） | 20s |
+> 不配置 Key 也可以：登录、加入班级、做老师布置的作业、查看作业结果。
 
-**总时长：约 6.5 分钟**
+> AI 对话、AI 出题、班级作业生成、LLM 报告、截图答疑需要 Key。
 
----
-
-## ⚙️ 配置参数
-
-所有参数通过 `backend/.env` 配置，完整模板见 `.env.example`：
-
-| 变量 | 默认值 | 必填 | 说明 |
-|------|--------|------|------|
-| `LLM_PROVIDER` | `deepseek` | 可选 | 提供商标识（仅作标记，实际走 OpenAI 兼容协议） |
-| `LLM_API_KEY` | — | ✅ | 大模型 API Key（主 LLM） |
-| `LLM_BASE_URL` | `https://api.deepseek.com/v1` | ✅ | 主 LLM 地址 |
-| `LLM_MODEL` | `deepseek-chat` | ✅ | 主 LLM 名称 |
-| `EMBEDDING_LOCAL` | `false` | 可选 | `true` 则用本地 sentence-transformers |
-| `EMBEDDING_MODEL` | `text-embedding-v3` | 可选 | Embedding 模型名（推荐智谱 `embedding-3`，2048 维） |
-| `EMBEDDING_BASE_URL` | 空 | 可选 | Embedding 接口地址；留空依次回退 多模态 → 主 LLM 地址 |
-| `EMBEDDING_API_KEY` | 空 | 可选 | Embedding Key；留空依次回退 多模态 → 主 LLM Key |
-| `MULTIMODAL_API_KEY` | — | 可选 | 视觉模型 Key（主模型不支持视觉时必填） |
-| `MULTIMODAL_BASE_URL` | — | 可选 | 视觉模型地址（如 `https://open.bigmodel.cn/api/paas/v4`） |
-| `MULTIMODAL_MODEL` | — | 可选 | 视觉模型名称（如 `glm-4v-flash`） |
-| `SANDBOX_TIMEOUT` | `5` | 可选 | 沙箱执行超时秒数 |
-| `SANDBOX_ALLOWED_LANGS` | `python` | 可选 | 允许执行的语言 |
-| `SANDBOX_MODE` | `auto` | 可选 | `auto` / `docker` / `subprocess` |
-| `SANDBOX_DOCKER_IMAGE` | `python:3.11-slim` | 可选 | Docker 沙箱镜像 |
-| `AUTH_SECRET` | 空（用开发默认值） | 可选 | HMAC 签名密钥，**生产必须设置** |
-| `RATE_LIMIT_PER_MIN` | `60` | 可选 | 每 IP 每分钟请求上限 |
-| `DATA_DIR` | `./data` | 可选 | 运行时数据目录 |
-| `CHROMA_DIR` | `./data/chroma` | 可选 | 向量库目录 |
-| `GRAPH_FILE` | `./data/knowledge_graph.json` | 可选 | 图谱文件路径 |
-| `PORT` | `8000` | 可选 | 服务端口（启动时用 `--port 8080` 覆盖为 8080） |
-| `HOST` | `0.0.0.0` | 可选 | 服务监听地址 |
-
-### 推荐供应商
-
-| 用途 | 推荐 | 费用 |
-|------|------|------|
-| 主 LLM（Function Calling） | DeepSeek Chat | 💰 便宜（约 ¥1/M tokens） |
-| 多模态（截图答疑） | Zhipu GLM-4V-Flash | 🆓 免费额度 |
-| Embedding | Zhipu `embedding-3`（2048 维） | 🆓 有免费额度 |
-
----
-
-## 🐳 Docker 部署
-
-```yaml
-# docker/docker-compose.yml（实际内容）
-services:
-  codementor:                     # ← 服务名是 codementor
-    build:
-      context: ..
-      dockerfile: docker/Dockerfile.backend
-    container_name: codementor-api
-    ports:
-      - "8080:8080"
-    env_file:
-      - ../backend/.env
-    environment:
-      - SANDBOX_MODE=auto         # 有 docker.sock → 用容器隔离，否则 subprocess
-      - RATE_LIMIT_PER_MIN=60
-    volumes:
-      - codementor-data:/app/data
-      # 挂载 docker CLI 与 socket，使后端可启动沙箱容器（嵌套调用）
-      - /var/run/docker.sock:/var/run/docker.sock
-    restart: unless-stopped
-
-volumes:
-  codementor-data:
-```
-
-启动：
+### 测试
 
 ```bash
+cd backend
+python -m pytest tests -v
+```
+
+当前测试集 **51 项**。`pytest.ini` 已配置 `pythonpath = .`，不要再用裸 `pytest tests`（旧 README 的写法在部分环境会导致 `ModuleNotFoundError: app`）。
+
+### Docker（可选）
+
+```bash
+# 先创建 backend/.env
 docker compose -f docker/docker-compose.yml up -d --build
 ```
 
-> 💡 只有 **一个服务**：沙箱不是独立容器，而是由后端在运行时按需 `docker run` 起临时容器（`Dockerfile.sandbox` 即该镜像）。所以挂载 `docker.sock` 是必须的。
-> 构建上下文是**仓库根目录**（因为要同时拷贝 `backend/` 和 `frontend/`）。
+- 前端静态目录已修复为同时兼容本地与镜像布局。
+- 默认 `SANDBOX_MODE=subprocess`；镜像未安装 docker CLI，因此不是强隔离。
+- 比赛/演示环境也可以直接用源码运行。
 
 ---
 
-## 🔒 安全说明
+## 演示账号与演示数据
 
-| 风险 | 当前措施 | 生产建议 |
-|------|---------|---------|
-| 沙箱执行任意代码 | subprocess + 危险模块黑名单 (`os.system`, `subprocess`, `eval`) + 5s 超时 | 替换为 Docker 容器隔离（compose 已预留） |
-| API Key 泄露 | `.env` gitignore · PBKDF2 哈希存储密码 | 使用密钥管理服务（Vault / K8s Secrets） |
-| 暴力登录 | 滑动窗口限流 60 req/min · /auth 路径豁免过高频率 | 加验证码 / IP 黑名单 |
-| Markdown XSS | **DOMPurify** 消毒所有 LLM 输出（marked v5+ 已移除内置 sanitize）· 用户消息用 `textContent` 写入 | 后端也做输入长度限制 |
+| 角色 | 账号 | 密码 | 说明 |
+|---|---|---|---|
+| 教师 | `teacher` | `123456` | 创建班级、布置作业、查看看板/报告 |
+| 学生 | `student` | `123456` | 加入班级、做作业、个人练习 |
 
-> ⚠️ 本项目为**竞赛演示**用途，未经过生产环境安全审计。禁止直接用于生产部署。
+`python scripts/seed_demo.py` 会生成：
 
----
-
-## 🎨 前端打磨亮点
-
-前端为 **零构建 ES Modules 应用**：`frontend/index.html` 只保留结构与样式，逻辑拆到 `js/` 下按职责分层的 7 个模块（`core/` 基础设施 + `features/` 业务模块 + `app.js` 入口），模块间用 `import/export` 显式依赖、`window` 只用于承接 HTML 内联事件。所有第三方依赖（TailwindCSS + Marked.js + Highlight.js + ECharts + DOMPurify）已本地化到 `frontend/vendor/`，**`<link rel="preload">` 预加载 + CDN 自动兜底**，断网也能完整运行。
-
-### 已实现的 40+ 项交互打磨
-
-| 轮次 | 打磨项 |
-|------|--------|
-| 1 | 📋 动态仪表盘（4 张渐变统计卡 + 30s 自动刷新）· 🔖 胶囊快捷问题（3→5）· 🔐 登录弹窗一键填充 · ✨ Tab 淡入动画 · 🗺️ 图谱自适应高度 |
-| 2 | 📝 代码块语言标签（18 种映射）+ hover 一键复制 · 🔍 图谱搜索高亮匹配字符 + 🎯 定位节点 + 回车直达 |
-| 3 | 🎨 滚动条品牌色 · 🌈 Tab 选中态底部紫色指示线 · 🏷️ 图表标题左侧色条 · 🔄 图谱 spinner · 📖 报告展开/收起 · ✅ 批改主次按钮区分 · 🔧 TOOL 编号隐藏 |
-| 4 | 👋 欢迎语卡片折叠 · 💬 消息气泡 hover 显示角色+时间+复制 · 🏅 错题榜奖牌🥇🥈🥉 + 红色徽章 + 彩色进度条 |
-| 5 | 🔐 登录后自动欢迎 + 角色推荐 · 🗺️ 图谱节点 hover tooltip + 紫色辉光 · 📝 练一练快速启动按钮 · 👥 学生列表展开箭头 + 进度条颜色分段 |
-| 6 | 👋 欢迎卡片升级：标题栏倒三角 ▼ 旋转 + 底部胶囊按钮始终可见 · 🗺️ 图谱标签三层渲染（圆/标签分离）+ 8 方位智能选位择优 + 半透明深色底衬 · 📐 图谱画布高度自适应（读 clientHeight 替代写死 600px） |
-| 7 | 🎯 **右侧边栏按 Tab 动态显隐**（通用 `data-tabs` 机制） |
-| 8 | 🎯 **底部快捷操作栏仅对话 Tab 显示**（📎 附加代码 / 🖼️ 截图提问 / 5 个快捷胶囊） |
-| 9 | 💬 **对话 Tab flex column 布局让输入栏吸底** · 📝 **练一练按钮主次区分**（主按钮阴影加大、次按钮幽灵样式） · 📊 **学情 LLM 报告按钮渐变大号** |
-| 10 | 📝 **练一练批改反馈彩色渐变卡片**（emoji 大图标 + 对错分色渐变背景 + 正确性徽章 + 🔁 再来一道 / 💬 问 AI 按钮） |
-| 11 | 📊 **学情学生行内联雷达图展开**（点击 ▶ → accordion 展开小雷达图 + 薄弱知识点彩色进度条 + 再点收起） |
-| 12 | 🗺️ **图谱节点鲜艳色升级 + 同类型群体高亮**（6 类节点换更饱和的亮紫/亮玫紫/亮翡翠/亮琥珀/亮玫红/亮天蓝；hover 同族节点同步亮+辉光、异族节点灰化 opacity=0.35） |
-| 13 | 🧠 **AI 思考阶段指示器**（`status` 事件驱动：理解问题 → 调用工具 → 生成回答 实时步骤条 + 旋转动画，回答结束自动折叠为「已完成 N 步推理 · 工具调用 N 次」可展开摘要） · 🔁 **Agent 多轮工具调度**（单次提问最多 3 轮规划-调用循环，轮次用尽自动收口） · 🔗 **真实语义 Embedding**（智谱 `embedding-3`，2048 维，替代原 384 维字符哈希降级方案） |
-| 14 | 📦 **依赖全本地化**（8 个文件落到 `frontend/vendor/`，preload 预加载 + CDN 失败兜底，断网可用） · 🎤 **语音提问**（Web Speech API 中文识别，实时 interim 上屏 + 权限/设备异常提示） · 📱 **响应式适配**（≤1024px 顶栏换行、隐藏状态徽章、对话区高度自适应；≤768px 收紧留白与字号） · 🧩 **ES Modules 重构**（7 个模块 + JSDoc 类型注释，`window` 仅承接内联事件） |
-| 15 | 🚀 **静态资源协商缓存**（`/static` 返回 `Cache-Control: no-cache`，改了 js/css 立刻生效，内容未变仍走 304 不浪费带宽 —— 根治「改了代码但页面还是旧行为」） |
-| 16 | 🌱 **空状态升级**（练一练「新手入门路径」数组→栈→递归三级引导 · 学情学生端「去做第一道题，生成你的学情画像」强引导 · 右侧数据卡改友好「暂无」提示） · 🎯 **对话欢迎卡片**（知识问答/代码调试/出题练习/学习规划 4 张卡片，点一下自动示例提问） · 🗺️ **图谱三联动**（滚轮缩放 + 缩小时只留高权重标签、图例点击按类型筛选、hover 浮层显示 BKT 掌握度 / 前置知识 / 累计错题） · 📝 **练一练增强**（简单/中等/困难难度、PEP8 风格检查、Ctrl+Enter 提交 / Tab 缩进） · 📊 **右侧栏按 Tab 差异化**（对话=命中知识点 · 练一练=今日答题/正确率/连续答对 · 学情=近 7 天进步曲线 · 图谱=图谱规模） |
-
-**右侧边栏 × Tab 显示矩阵**：
-
-| 边栏卡片 | 💬 对话 | 📝 练一练 | 🗺️ 图谱 | 📊 学情 |
-|---------|:------:|:--------:|:------:|:------:|
-| ⚡ 实时数据（仪表盘） | ✅ | ✅ | ✅ | ✅ |
-| 📎 快捷操作栏 | ✅ | ❌ | ❌ | ❌ |
-| 🔍 图谱节点搜索 | ✅ | ❌ | ✅ | ❌ |
-| 🏷️ 节点类型图例 | ❌ | ❌ | ✅ | ❌ |
-| ⚡ 热门知识点一键出题 | ❌ | ✅ | ❌ | ❌ |
-| 🔥 薄弱知识点 Top 3 | ❌ | ❌ | ❌ | ✅ |
-
-### 关键交互细节
-
-- **代码块**：hover 显示"复制"按钮 → 点击变绿"✓ 已复制" → 1.5s 后恢复
-- **消息气泡**：hover 显示 `👤 你 · 18:44 · 📋 复制` / `🤖 CodeMentor · 18:44 · 📋 复制`
-- **图谱搜索定位**：输入"红黑树" → 紫色高亮匹配字符 → 点 🎯 切图谱 Tab → viewBox 自动居中 → 3s 黄色脉冲辉光
-- **登录角色分流**：学生登录 → 聊天推荐 3 条学生操作；教师登录 → 自动切学情 Tab + 学情推荐
-- **报告展开**：默认 max-h-96 折叠 → 点"展开 ▼" → max-h-none 完整展开 → 点"收起 ▲"
-- **键盘快捷键**：Enter 快速登录、Esc 关闭弹窗
-- **思考步骤条**：发送后立即出现「🧠 理解问题 → 🔧 调用工具 → ✍️ 生成回答」，完成后折叠为「已完成 N 步推理 · 工具调用 N 次」，点击可展开回看
-- **语音提问**：点 🎤 后按钮变红脉冲，边说边把识别结果显示在输入框占位符上，说完自动落进输入框；不支持/无权限/无麦克风都有明确提示
-- **响应式**：≤1024px 顶栏换行并隐藏连接徽章，≤768px 收紧留白与字号，图表随容器重新计算尺寸
-- **欢迎卡片**：4 张能力卡片（知识问答 / 代码调试 / 出题练习 / 学习规划），点击即发对应示例问题，答辩时不用手敲
-- **空状态引导**：练一练给出「数组 → 栈 → 递归」三级入门路径；学生端学情给出「去做第一道题，生成你的学情画像」；无数据处统一显示「暂无」而非横线占位
-- **图谱交互**：滚轮缩放（缩小后只保留连接度高的节点标签）、图例点击按类型隐藏/显示、hover 浮层显示 BKT 掌握度 + 前置知识 + 累计错题，点击节点直接让 AI 讲解
-- **编辑器增强**：难度选择（简单/中等/困难）、PEP8 检查逐行提示、Ctrl+Enter 提交、Tab 插入两空格
+- 班级「演示班（自动生成）」及 `student` + `demo_01..demo_08` 成员；
+- 一份 3 题统一作业（选择 / 判断 / 编程）；
+- 8 名演示学生的提交（不同正确率），`student` 保留未提交，便于现场演示作答。
 
 ---
 
-## ❓ FAQ
+## 功能地图
 
-<details><summary><b>Q: 必须用 DeepSeek 吗？可以换其他模型吗？</b></summary>
+### 💬 对话
 
-A: 后端用的是 OpenAI 兼容接口协议，只要你的模型提供商有 Chat Completions Endpoint 就能直接替换。改 `.env` 里的三项：
-```
-LLM_API_KEY=你的key
-LLM_BASE_URL=https://api.qwen.aliyun.com/v1   # 换成千问
-LLM_MODEL=qwen-plus
-```
-Function Calling 也是标准 OpenAI 格式，只要模型支持 tool_calls 字段就没问题。本地部署 Llama 3 + vLLM 也可以。
-</details>
+- 理论问答：GraphRAG 检索 → Agent 组织讲解
+- 代码调试：沙箱运行 + AST 分析 + 苏格拉底式引导
+- 学习路径：读取请求中携带的**本地学情摘要**（不落服务端），结合图谱前置关系
+- 截图答疑：需智谱 GLM
+- 语音提问：Chrome / Edge Web Speech API
+- 思考步骤条：SSE `status` 旁路事件，不进入正文
 
-<details><summary><b>Q: 为什么 Embedding 会 404？</b></summary>
+### 📝 练一练
 
-A: DeepSeek Chat（`deepseek-chat`）**没有 Embedding Endpoint**，`/embeddings` 请求会返回 404。这不是你的配置问题。
+- **我的作业**（学生）：老师统一作业列表、作答、一次提交、结果回显
+- **个人练习**（本地）：按知识点 / 题型 / 难度出题；LLM 出题时生成判题方案
+- 判题：选择/判断比对答案；编程题测试用例 + AST/风格规则
+- 错题重做、PEP8 检查、Ctrl+Enter 提交、Tab 缩进
+- 个人结果只更新浏览器本地 BKT/错题本，可导出/导入
 
-推荐配置：复用智谱 Key 调 `embedding-3`（2048 维，与 GLM-4V 同一个 Key）：
+### 🗺️ 图谱
 
-```env
-EMBEDDING_MODEL=embedding-3
-EMBEDDING_BASE_URL=https://open.bigmodel.cn/api/paas/v4
-EMBEDDING_API_KEY=your_zhipu_api_key
+- 62 节点 / 69 边，SVG 力导向
+- 缩放、拖拽、分类筛选、搜索定位
+- hover 展示本地掌握度、错题次数与前置关系
+
+### 📊 学情
+
+- **学生**：本地雷达图、本地热力分布、本地错题榜、7 天曲线、今日统计；「个人学情档案」支持按全部 / 个人练习 / 班级作业筛选，逐知识点查看掌握度、BKT 轨迹、最近作答与错题，并可调用自己的 LLM 生成整体或单知识点分析
+- **教师**：多班级切换、班级作业掌握度雷达、作业薄弱知识点、高频作业错题、学生完成情况、作业提交详情、班级 LLM 报告
+
+---
+
+## API 速查
+
+所有 API 前缀 `/api`。LLM 相关接口需要请求头：
+
+```text
+X-LLM-Provider: deepseek | zhipu
+X-LLM-Key: <用户自己的远程 Key>
+X-LLM-Model: <可选，覆盖预设模型>
 ```
 
-三级回退：`EMBEDDING_*` → `MULTIMODAL_*` → 主 LLM；三者都不可用时降级为本地字符 bigram 哈希向量（384 维，保证检索链路不中断）。**换 Embedding 模型后向量维度会变，需删除 `data/chroma` 目录让向量库重建。**
-</details>
+服务端不保存这些头，也不写日志。
 
-<details><summary><b>Q: 沙箱安全吗？会不会跑恶意代码？</b></summary>
+### 认证
 
-A: 默认 subprocess 模式**有限安全**。黑名单拦截了 `os.system`, `subprocess`, `eval`, `exec`, `__import__`, `pickle`, `socket`, `ctypes` 等 20+ 模块。但 Python 可以用 `importlib` 绕黑名单。
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| POST | `/api/auth/register` | 注册（仅学生；教师账号由种子/管理员创建） |
+| POST | `/api/auth/login` | 登录 |
+| GET | `/api/auth/me` | 当前用户 🔐 |
 
-**竞赛演示够用**，**生产必须上 Docker**（compose 已预留 sandbox 服务）。沙箱模式自动检测：检测到 `/var/run/docker.sock` 就启用容器隔离。
-</details>
+### 模型设置
 
-<details><summary><b>Q: 种子数据（62 节点 / 69 边）可以扩展吗？</b></summary>
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/api/settings/llm/providers` | provider 预设（不包含 Key） |
+| POST | `/api/settings/llm/test` | 使用请求头 Key 做一次极小的连通性测试 |
 
-A: 完全可以。后端 `app/core/seed_knowledge.py` 用 Python 字典定义节点，追加即可。种子脚本会自动：
-1. 调用 LLM 生成节点描述（可选，需 API Key）
-2. 用 NetworkX 计算 pagerank
-3. 生成 ChromaDB 向量（或降级为本地哈希）
-4. 写入 `data/knowledge_graph.json`
+### Agent / 出题 / 判题
 
-删除 `data/knowledge_graph.json` 后重启后端会自动重新种子。
-</details>
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| POST | `/api/chat/stream` | Agent SSE 对话（Key） |
+| POST | `/api/chat/quick` | 快速问答（Key） |
+| POST | `/api/exam/generate` | 出题 + 判题方案（Key） |
+| POST | `/api/exam/paper` | 批量出题（Key） |
+| POST | `/api/exam/grade` | 按题目快照中的方案判分；**不需要 Key** |
+| POST | `/api/analysis/personal` | 个人学情 LLM 分析（Key；只接收聚合后的掌握度 / 趋势 / 错题计数，不落盘） |
+| GET | `/api/plugins` | 当前出题 / 判题插件元数据（不含用户数据） |
 
-<details><summary><b>Q: 前端为什么不拆成 Vue/React + Vite？</b></summary>
+### 班级 / 作业
 
-A: 两个考虑：
-1. **竞赛便携性**：整个前端零构建，`frontend/` 直接挂在任何静态服务器上即可运行（依赖已本地化，不依赖外网 CDN）
-2. **复杂度可控**：前端只做数据展示和用户交互，业务逻辑全在后端。3 人小团队 5 天冲刺期，按职责拆成 7 个 ES Module 已足够清晰，引入框架反而增加构建链和调试成本
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| POST | `/api/classes` | 教师创建班级 🔐 |
+| GET | `/api/classes` | 教师看自己的班 / 学生看加入的班 🔐 |
+| POST | `/api/classes/join` | 学生用邀请码加入 🔐 |
+| GET | `/api/classes/{class_id}` | 班级详情 🔐 |
+| POST | `/api/teacher/assignments` | 教师生成并发布统一作业（Key + teacher） |
+| GET | `/api/teacher/assignments` | 教师作业列表 🔐 |
+| GET | `/api/teacher/assignments/{id}` | 作业详情 + 提交明细 🔐 |
+| POST | `/api/teacher/assignments/{id}/close` | 关闭作业 🔐 |
+| GET | `/api/teacher/classes/{class_id}/dashboard` | 班级作业看板 🔐 |
+| POST | `/api/teacher/assignments/{id}/submissions/{student_id}/override` | 教师改分 🔐 |
+| GET | `/api/teacher/classes/{class_id}/report` | 基于作业数据的 LLM 报告（Key + teacher） |
+| GET | `/api/assignments/mine` | 学生的作业列表 🔐 |
+| GET | `/api/assignments/{id}` | 学生可见题目（不含答案/解析/判题方案）🔐 |
+| POST | `/api/assignments/{id}/submit` | 学生提交一次，服务端判分 🔐 |
+| POST | `/api/assignments/{id}/retry` | 已提交学生错题重做：按服务端完整快照判分，不返回答案 🔐 |
 
-如果后续要做产品化，推荐拆成 Vue 3 + Vite + Pinia。
-</details>
+### 代码 / 图谱 / 系统
 
-<details><summary><b>Q: BKT 参数（0.3 / +0.15 / -0.10）是怎么来的？</b></summary>
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| POST | `/api/code/analyze` | AST 分析 |
+| POST | `/api/code/style` | PEP8 检查 |
+| POST | `/api/code/execute` | 沙箱执行 |
+| POST | `/api/code/test` | 沙箱 + 测试用例 |
+| GET | `/api/knowledge/graph` | 完整图谱 |
+| GET | `/api/knowledge/search?query=` | 节点搜索 |
+| GET | `/api/knowledge/node/{id}` | 节点详情 |
+| GET | `/health` | 健康检查 |
+| GET | `/api/metrics` | 运行指标（teacher）🔐 |
 
-A: **本项目实现的是 BKT 的工程简化版，不是严格的贝叶斯公式**。答辩时建议如实说明。
-
-真正的 BKT 会用四个参数做贝叶斯更新：
-- p(L0) 初始掌握概率、p(T) 转移概率、p(G) 猜测概率、p(S) 失误概率
-
-本项目的实现（[bkt_service.py](backend/app/services/bkt_service.py)）用线性增量代替：
-- 初始掌握度 0.3（新手大概率不会）
-- 答对一次 +0.15，答错一次 −0.10
-- 结果夹紧到 [0.05, 0.98]，避免"一次答对就满分"和"一次答错就归零"
-
-**为什么这样设计**：竞赛周期内，真正的 BKT 需要按知识点训练 p(T)/p(G)/p(S) 参数，缺少真实答题数据时拟合出的参数没有意义；线性增量在演示数据下更稳定、可解释，也足够驱动"薄弱点排序"和"学习路径推荐"。如需升级为完整 BKT，替换 `update_mastery()` 即可，接口不变。
-</details>
-
----
-
-## 🛠️ 故障排查
-
-| 问题 | 排查 |
-|------|------|
-| 图谱空节点 | 检查 `.env` 中 `LLM_API_KEY` 是否正确（种子脚本需调用 LLM） |
-| 沙箱执行超时 | 调整 `SANDBOX_TIMEOUT` 或检查是否进入无限循环（AST 死循环检测） |
-| Embedding 404 | 主模型（如 DeepSeek）不支持 Embedding，按上文配置 `EMBEDDING_BASE_URL` + `EMBEDDING_API_KEY` 指向智谱 `embedding-3` |
-| `/api/teacher/*` 403 | 教师接口需 `teacher` 角色，用 teacher/123456 登录 |
-| 前端 CORS | 后端已 `allow_origins=["*"]`，若开发时跨域仍报错检查启动端口 |
-
----
-
-## 📜 License
-
-MIT License — 用于竞赛和教育用途。
-
-## 🙏 致谢
-
-- **LangChain / sse-starlette** — 依赖清单中保留，架构参考其编排与 SSE 设计（当前实际实现为自研调度 + FastAPI StreamingResponse）
-- **DeepSeek / Zhipu AI** — 模型服务
-- **FastAPI Community** — SSE + Metrics 中间件参考
-- **知识图谱** — 62 节点由项目组依据计算机专业核心课程体系（数据结构 / 算法 / 操作系统 / 编程范式）手工整理，非直接引用论文数据集
+> 旧版 `/api/bkt/*`、`/api/wrongbook/*`、`/api/teacher/dashboard`、`/api/teacher/students`、`/api/teacher/report` 已移除，避免教师读取学生日常练习。
 
 ---
 
-<p align="center">
-  <strong>🚀 Built with ❤️ for AI + Education</strong><br>
-  <a href="https://gitee.com/shijh1216/CodeMentor">Gitee</a> · 
-  <a href="https://github.com/sjh123465/bisai">GitHub</a>
-</p>
+## 判题方案如何工作
+
+1. 出题时，Prompt 要求 LLM 除题目外返回一个 `grading_plan`；
+2. 服务端校验/兜底为确定性方案，并随题目快照冻结；
+3. 学生提交后，`PlanBasedGrader` 按规则执行：
+   - `answer`：选择/判断答案匹配
+   - `tests_pass`：沙箱测试用例通过率
+   - `no_infinite_loop`：AST 死循环检测
+   - `max_loop_depth` / `has_recursion`：结构约束
+   - `required_keywords` / `forbidden_keywords`：关键词
+   - `pep8`：风格检查
+   - `manual`：标记教师复核
+4. 加权汇总得分，按 `pass_threshold` 判断是否通过；
+5. 判题过程不调用 LLM，不需要任何服务端 Key。
+
+插件接口与扩展方式见 [PLUGIN_DEV.md](PLUGIN_DEV.md)。
+
+---
+
+## 配置说明
+
+`backend/.env` 只保存服务端运行配置（沙箱、数据目录、限流、签名密钥）。
+**模型 Key 不再写入 `.env`。**
+
+| 变量 | 默认值 | 说明 |
+|---|---|---|
+| `AUTH_SECRET` | 开发默认值 | 生产必须设置 |
+| `RATE_LIMIT_PER_MIN` | `60` | 每 IP 每分钟请求上限 |
+| `SANDBOX_MODE` | `subprocess` | `auto` / `docker` / `subprocess` |
+| `SANDBOX_TIMEOUT` | `5` | 沙箱超时 |
+| `DATA_DIR` | `./data` | 数据目录 |
+| `CHROMA_DIR` | `./data/chroma` | 向量库 |
+| `GRAPH_FILE` | `./data/knowledge_graph.json` | 图谱文件 |
+| `HOST` / `PORT` | `0.0.0.0` / `8080` | 监听地址 |
+
+### Embedding
+
+共享知识库固定使用 **384 维本地字符 bigram 哈希向量**，不依赖任何 Key，也不会因用户 provider 不同产生维度漂移。语义召回能力弱于真实 embedding，但保证离线/无 Key 可运行。
+
+---
+
+## 数据文件
+
+| 文件 | 说明 |
+|---|---|
+| `backend/data/users.json` | 用户（PBKDF2 哈希）；首次启动创建演示账号 |
+| `backend/data/classroom.json` | 班级 / 作业 / 提交；原子写 + `.bak`，单进程 RLock |
+| `backend/data/knowledge_graph.json` | 62 节点 / 69 边种子 |
+| `backend/data/chroma/` | 向量库（本地哈希 384 维） |
+
+浏览器本地：
+
+- `cm_profile_v1:<用户名>`：BKT / 错题本 / 历史 / 已合并作业 id；
+- `cm_llm_config_session` / `cm_llm_config_local`：模型 Key（默认 sessionStorage，勾选记住才 localStorage）。
+
+> 单机 JSON 存储适用于比赛/小规模演示；多 worker 部署需要改用数据库或文件锁。当前请保持单 Uvicorn worker。
+
+---
+
+## 测试
+
+```bash
+cd backend
+python -m pytest tests -v
+```
+
+覆盖：
+
+- API / 权限 / 教师注册限制 / 个人路由移除
+- AST 分析
+- BKT 边界与错题本单次扣分
+- 沙箱执行 / 危险模块 / 超时
+- Token / PBKDF2
+- 限流
+- 判题方案确定性判分（选择、编程、死循环、默认方案、公开题隐藏答案）
+- 班级作业完整流程（建班 → 加入 → 发布 → 提交一次 → 教师看板 → 答案不泄露）
+
+---
+
+## 已知限制
+
+- 沙箱是**比赛演示级安全**，不是生产级隔离；不要公网裸奔代码执行接口。
+- Docker 镜像未内置 docker CLI，`SANDBOX_MODE=auto` 会退化 subprocess；需要强隔离时请另行扩展。
+- 个人学情存在浏览器，清理浏览器数据/换设备会丢失；请使用导出/导入。
+- Web 前端没有构建链，所有逻辑为原生 ES Modules；规模再大建议迁移到 Vue/React。
+- JSON 班级存储只支持单进程；并发量上来需迁移 SQLite/PostgreSQL。
+- 目前只支持 DeepSeek / 智谱两个 provider 预设；没有本地 Ollama 直连。
+- 个人练习/作业接口的防滥用仍需根据部署场景继续加强。
+
+---
+
+## License
+
+MIT License — 见 [LICENSE](LICENSE)。

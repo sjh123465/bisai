@@ -1,0 +1,12 @@
+.git
+.gitignore
+__pycache__
+*.py[cod]
+.venv
+venv
+backend/.env
+backend/data
+backend/tests
+backend/scripts
+node_modules
+docs

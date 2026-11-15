@@ -6,22 +6,7 @@ from functools import lru_cache
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", case_sensitive=False, extra="ignore")
 
-    # LLM
-    llm_provider: str = "deepseek"
-    llm_api_key: str = ""
-    llm_base_url: str = "https://api.deepseek.com/v1"
-    llm_model: str = "deepseek-chat"
-
-    # Embedding
-    embedding_local: bool = False
-    embedding_model: str = "text-embedding-v3"
-    embedding_base: str = ""       # EMBEDDING_BASE_URL：为空则回退多模态 / 主 LLM 地址
-    embedding_key: str = ""        # EMBEDDING_API_KEY：为空则回退多模态 / 主 LLM Key
-
-    # Multimodal（截图答疑，默认复用 LLM 配置；若主模型不支持视觉需单独指定）
-    multimodal_api_key: str = ""
-    multimodal_base_url: str = ""
-    multimodal_model: str = ""
+    # 模型 Key 由请求头 X-LLM-* 提供，服务端不保存、不读取任何 LLM Key。
 
     # Sandbox
     sandbox_timeout: int = 5
@@ -42,13 +27,6 @@ class Settings(BaseSettings):
     # Server
     port: int = 8000
     host: str = "0.0.0.0"
-
-    def embedding_base_url(self) -> str:
-        # 优先专用 Embedding 地址 → 多模态服务（智谱同一 Key 可调 embedding-3）→ 主 LLM
-        return (self.embedding_base or self.multimodal_base_url or self.llm_base_url).rstrip("/")
-
-    def embedding_api_key(self) -> str:
-        return self.embedding_key or self.multimodal_api_key or self.llm_api_key
 
 
 @lru_cache()

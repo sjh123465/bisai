@@ -15,7 +15,9 @@
     _voiceOn = on;
     if (!btn) return;
     btn.classList.toggle('voice-on', on);
-    btn.textContent = on ? '🔴' : '🎤';
+    btn.innerHTML = on
+      ? '<svg class="cm-icon" aria-hidden="true"><use href="#i-x"></use></svg>'
+      : '<svg class="cm-icon" aria-hidden="true"><use href="#i-mic"></use></svg>';
     btn.title = on ? '正在聆听… 点击停止' : '语音提问（Chrome / Edge，需允许麦克风）';
   }
 
@@ -44,7 +46,7 @@
         input.value = (input.value ? input.value + ' ' : '') + finalTxt.trim();
         input.placeholder = VOICE_PLACEHOLDER;
       } else if (interim) {
-        input.placeholder = '🎙️ ' + interim;
+        input.placeholder = '正在聆听 · ' + interim;
       }
     };
     rec.onerror = (e) => {

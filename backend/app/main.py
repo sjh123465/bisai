@@ -27,8 +27,8 @@ async def lifespan(app: FastAPI):
         from app.core.seed_knowledge import init_knowledge_base
         await init_knowledge_base()
     except Exception as e:
-        logger.error(f"知识库初始化失败（可能是 Embedding API 未配置）: {e}")
-        logger.warning("⚠️ 图谱可能为空，如需种子数据请先在 .env 填入 LLM_API_KEY")
+        logger.error(f"知识库初始化失败（请检查 ChromaDB / 数据目录 / 依赖安装）: {e}")
+        logger.warning("⚠️ 知识库可能为空；个人练习与班级作业仍可使用，图谱/向量功能会受限")
 
     yield
     logger.info("👋 CodeMentor 关闭")
@@ -60,9 +60,19 @@ for r in routers_list:
     app.include_router(r)
 
 # 静态文件（前端）
-frontend_dir = os.path.join(os.path.dirname(__file__), "..", "..", "frontend")
-if os.path.isdir(frontend_dir):
+# 本地运行: backend/app/../../frontend == 仓库根/frontend
+# Docker:   /app/app/../frontend      == /app/frontend
+_here = os.path.dirname(os.path.abspath(__file__))
+_frontend_candidates = [
+    os.path.abspath(os.path.join(_here, "..", "..", "frontend")),
+    os.path.abspath(os.path.join(_here, "..", "frontend")),
+    os.path.abspath(os.path.join(os.getcwd(), "frontend")),
+]
+frontend_dir = next((p for p in _frontend_candidates if os.path.isdir(p)), None)
+if frontend_dir:
     app.mount("/static", StaticFiles(directory=frontend_dir), name="frontend")
+else:
+    logger.warning("⚠️ 未找到 frontend 目录，/static 前端将不可用")
 
 
 @app.middleware("http")

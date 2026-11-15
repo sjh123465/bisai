@@ -15,8 +15,12 @@ class Credentials(BaseModel):
 
 @router.post("/register")
 async def register(body: Credentials):
+    # 公开注册只允许学生。教师账号由管理员/种子数据创建，避免任何人注册后
+    # 直接获得班级数据权限。
+    if (body.role or "student").lower() != "student":
+        raise HTTPException(status_code=403, detail="教师账号需由管理员创建")
     try:
-        user = get_user_store().create(body.username.strip(), body.password, body.role)
+        user = get_user_store().create(body.username.strip(), body.password, "student")
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     return {

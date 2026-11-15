@@ -32,20 +32,41 @@ def test_me_requires_token(client):
 
 
 def test_teacher_dashboard_requires_auth(client):
-    r = client.get("/api/teacher/dashboard")
+    r = client.get("/api/teacher/classes/not-exist/dashboard")
     assert r.status_code == 401
 
 
 def test_teacher_dashboard_forbidden_for_student(client, student_headers):
-    r = client.get("/api/teacher/dashboard", headers=student_headers)
+    r = client.get("/api/teacher/classes/not-exist/dashboard", headers=student_headers)
     assert r.status_code == 403
 
 
 def test_teacher_dashboard_ok(client, teacher_headers):
-    r = client.get("/api/teacher/dashboard", headers=teacher_headers)
-    assert r.status_code == 200
+    r = client.post("/api/classes", headers=teacher_headers, json={"name": "API 测试班"})
+    assert r.status_code == 200, r.text
+    class_id = r.json()["id"]
+    r = client.get(f"/api/teacher/classes/{class_id}/dashboard", headers=teacher_headers)
+    assert r.status_code == 200, r.text
     data = r.json()
-    assert "heatmap" in data and "graph_stats" in data
+    assert "heatmap" in data and "class_summary" in data
+
+
+def test_teacher_registration_blocked(client):
+    r = client.post("/api/auth/register", json={
+        "username": "t_evil_teacher", "password": "abcdef123", "role": "teacher",
+    })
+    assert r.status_code == 403
+
+
+def test_personal_learning_routes_removed(client):
+    assert client.get("/api/bkt/mastery/anyone").status_code == 404
+    assert client.get("/api/wrongbook/list/anyone").status_code == 404
+
+
+def test_llm_endpoints_require_user_key(client):
+    assert client.post("/api/chat/stream", json={"message": "你好"}).status_code == 400
+    assert client.post("/api/exam/generate", json={"concept": "数组"}).status_code == 400
+    assert client.get("/api/settings/llm/providers").status_code == 200
 
 
 def test_metrics_requires_teacher(client, student_headers, teacher_headers):
