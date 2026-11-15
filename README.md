@@ -81,7 +81,7 @@
 
 | 层级 | 技术 |
 |------|------|
-| **前端** | HTML5 + TailwindCSS (CDN) + Marked.js + Highlight.js + ECharts 5 + DOMPurify + Vanilla JS |
+| **前端** | HTML5 + TailwindCSS + Marked.js + Highlight.js + ECharts 5 + DOMPurify + **原生 ES Modules**（零构建，依赖本地化到 `vendor/`） |
 | **后端** | FastAPI 0.115 + Uvicorn + Pydantic v2 |
 | **AI 模型** | DeepSeek Chat（主 LLM）· Zhipu GLM-4V-Flash（多模态） |
 | **Agent** | 自研 Function Calling 调度器（直接调用 OpenAI 兼容接口，未依赖 LangChain） |
@@ -155,7 +155,7 @@ GraphRAGService.retrieve(query, vector_top_k=…) → 图谱命中 + 向量命�
   "timed_out": False,
   "execution_time": 0.08
 }
-# 🔗 默认 subprocess，DANGEROUS_MODULES 黑名单拦截 22 个模块
+# 🔗 默认 subprocess，DANGEROUS_MODULES 黑名单拦截 24 个模块
 #    （os / subprocess / socket / ctypes / pickle / shutil / multiprocessing …）
 #    Docker 模式下替换为容器隔离（--network none + 资源限制）
 ```
@@ -309,6 +309,7 @@ python -m uvicorn app.main:app --host 0.0.0.0 --port 8080
 | 🐛 代码调试 | 贴入报错代码 | 沙箱运行 → AST 静态分析 → 苏格拉底引导 |
 | 🖼️ 截图答疑 | 点击"截图提问"上传图片 | 多模态视觉模型理解图片 → 结合图谱讲解 |
 | 📚 学习路径 | "图论我该先学什么？" | BKT 薄弱点 + 图谱前置关系 → 推荐序列 |
+| 🎤 语音提问 | 点输入框旁麦克风按钮说话 | 浏览器 Web Speech API 中文识别 → 实时上屏 → 识别结果自动填入输入框 |
 | 🔗 图谱节点点击 | 在图谱 Tab 点击节点 | 自动跳转到对话 Tab，发送该节点提问 |
 
 ### 📝 练一练 Tab — AI 出题 + 双轨批改
@@ -563,15 +564,18 @@ pytest tests/ -v
 |---|------|---------|---------|
 | 1 | 打开前端 → 登录 teacher/123456 | 一键填充 + 角色路由 | 10s |
 | 2 | 切到 🗺️ 图谱 Tab | 62 节点力导向图 · 点击节点 | 30s |
-| 3 | 切回 💬 对话 → 问"红黑树和 AVL 有什么区别？" | Agent 自动 GraphRAG · 流式输出 · 图谱节点引用 🏷️ | 60s |
+| 3 | 切回 💬 对话 → 问"红黑树和 AVL 有什么区别？" | Agent 多轮调度（规划 → 调工具 → 再规划）· **思考步骤条实时可见** · 流式输出 · 图谱节点引用 🏷️ | 60s |
 | 4 | 附加代码 → 粘一段含死循环的快排 → 点"AI 辅导" | 沙箱超时 → AST 定位死循环 → 苏格拉底引导 | 45s |
 | 5 | 切到 📝 练一练 → 选"快速排序" + "编程题" → 生成 | AI 出题 · 代码编辑器 | 30s |
 | 6 | 写答案 → 点"提交批改" | 双轨批改 · AST 特征 + LLM 解释 | 30s |
 | 7 | 切到 📊 学情 → 点"🤖 LLM 生成报告" | BKT 雷达图 + 热力图 + AI 学情报告（Markdown） | 60s |
 | 8 | 右侧栏搜索"红黑树" → 点 🎯 定位 | 搜索高亮 → 图谱自动聚焦 + 脉冲动画 | 15s |
 | 9 | 右侧栏数据卡（节点 62 / 关联 69 / 薄弱 1 / 活跃 2） | 实时仪表盘 · 每 30s 自动刷新 | 10s |
+| 10 | 点输入框旁 🎤 说"什么是栈？" | 语音提问（Web Speech API 中文识别，实时上屏） | 15s |
+| 11 | 浏览器窗口缩到平板/手机宽度 | 响应式布局（顶栏换行、图表自适应） | 15s |
+| 12 | 断网后刷新页面 | 依赖本地化：无外网也能完整加载（Tailwind / ECharts / 高亮全部在 `vendor/`） | 20s |
 
-**总时长：约 5 分钟**
+**总时长：约 5.5 分钟**
 
 ---
 
@@ -687,6 +691,7 @@ docker compose -f docker/docker-compose.yml up -d --build
 | 12 | 🗺️ **图谱节点鲜艳色升级 + 同类型群体高亮**（6 类节点换更饱和的亮紫/亮玫紫/亮翡翠/亮琥珀/亮玫红/亮天蓝；hover 同族节点同步亮+辉光、异族节点灰化 opacity=0.35） |
 | 13 | 🧠 **AI 思考阶段指示器**（`status` 事件驱动：理解问题 → 调用工具 → 生成回答 实时步骤条 + 旋转动画，回答结束自动折叠为「已完成 N 步推理 · 工具调用 N 次」可展开摘要） · 🔁 **Agent 多轮工具调度**（单次提问最多 3 轮规划-调用循环，轮次用尽自动收口） · 🔗 **真实语义 Embedding**（智谱 `embedding-3`，2048 维，替代原 384 维字符哈希降级方案） |
 | 14 | 📦 **依赖全本地化**（8 个文件落到 `frontend/vendor/`，preload 预加载 + CDN 失败兜底，断网可用） · 🎤 **语音提问**（Web Speech API 中文识别，实时 interim 上屏 + 权限/设备异常提示） · 📱 **响应式适配**（≤1024px 顶栏换行、隐藏状态徽章、对话区高度自适应；≤768px 收紧留白与字号） · 🧩 **ES Modules 重构**（7 个模块 + JSDoc 类型注释，`window` 仅承接内联事件） |
+| 15 | 🚀 **静态资源协商缓存**（`/static` 返回 `Cache-Control: no-cache`，改了 js/css 立刻生效，内容未变仍走 304 不浪费带宽 —— 根治「改了代码但页面还是旧行为」） |
 
 **右侧边栏 × Tab 显示矩阵**：
 
@@ -707,6 +712,9 @@ docker compose -f docker/docker-compose.yml up -d --build
 - **登录角色分流**：学生登录 → 聊天推荐 3 条学生操作；教师登录 → 自动切学情 Tab + 学情推荐
 - **报告展开**：默认 max-h-96 折叠 → 点"展开 ▼" → max-h-none 完整展开 → 点"收起 ▲"
 - **键盘快捷键**：Enter 快速登录、Esc 关闭弹窗
+- **思考步骤条**：发送后立即出现「🧠 理解问题 → 🔧 调用工具 → ✍️ 生成回答」，完成后折叠为「已完成 N 步推理 · 工具调用 N 次」，点击可展开回看
+- **语音提问**：点 🎤 后按钮变红脉冲，边说边把识别结果显示在输入框占位符上，说完自动落进输入框；不支持/无权限/无麦克风都有明确提示
+- **响应式**：≤1024px 顶栏换行并隐藏连接徽章，≤768px 收紧留白与字号，图表随容器重新计算尺寸
 
 ---
 
