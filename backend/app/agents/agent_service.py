@@ -16,6 +16,16 @@ from app.core.logger import get_logger
 
 logger = get_logger("agent")
 
+# 单次对话内最多允许的「工具调度轮次」——超过后强制收口出答案
+MAX_TOOL_ROUNDS = 3
+# 思考状态旁路哨兵：以它开头的片段不进入正文，由路由层拦截为 SSE status 事件
+STATUS_SENTINEL = "\x00STATUS\x00"
+
+
+def _status(stage: str, detail: str = "") -> str:
+    """构造一条旁路状态事件（不会展示给学生，仅供前端渲染思考进度）"""
+    return STATUS_SENTINEL + json.dumps({"stage": stage, "detail": detail}, ensure_ascii=False)
+
 
 # ---------- 工具定义（Function Calling 格式） ----------
 TOOLS = [
@@ -231,7 +241,8 @@ class AgentService:
         """
         完整的 Agent 对话流程：
         1. 构建 messages（系统 + 历史 + 当前）
-        2. LLM 返回 → 若请求工具调用则执行 → 把结果喂回 → 再次请求 → 流式输出
+        2. 多轮工具调度（最多 MAX_TOOL_ROUNDS 轮）：LLM 请求工具 → 执行 → 结果喂回 → 再决策
+        3. 模型停止请求工具后，流式输出最终引导回答
         """
         # 构建当前消息
         current_content = user_message
@@ -252,57 +263,69 @@ class AgentService:
                 messages.extend(history)
         messages.append({"role": "user", "content": current_content})
 
-        # 第一轮：LLM 决定是否调工具
-        try:
-            resp = await self.llm.chat(messages, tools=TOOLS, temperature=0.6)
-        except Exception as e:
-            yield f"[LLM 初始化失败: {e}]"
-            return
+        # ---- 多轮工具调度：最多 MAX_TOOL_ROUNDS 轮 ----
+        for round_idx in range(MAX_TOOL_ROUNDS):
+            if round_idx == 0:
+                yield _status("planning", "正在理解问题并规划解题思路")
+            else:
+                yield _status("replanning", f"第 {round_idx + 1} 轮：结合已有结果继续规划")
 
-        choice = resp["choices"][0]
-        message = choice["message"]
-
-        # ---- 判断是否需要工具调用 ----
-        tool_calls = message.get("tool_calls") or []
-
-        if not tool_calls:
-            # 无工具调用 → 直接流式输出
-            messages.append(message)  # assistant 消息
             try:
-                async for chunk in self.llm.chat_stream(messages, temperature=0.6):
-                    yield chunk
+                resp = await self.llm.chat(messages, tools=TOOLS, temperature=0.6)
             except Exception as e:
-                logger.error(f"流式回答中断: {e}")
-                yield f"\n\n⚠️ 回答中断：{e}\n\n请稍后重试；若持续失败，请检查 `.env` 中的 LLM_API_KEY 与网络连通性。"
-            return
+                logger.error(f"LLM 调度失败（第 {round_idx + 1} 轮）: {e}")
+                if round_idx == 0:
+                    yield f"[LLM 初始化失败: {e}]"
+                    return
+                yield f"\n\n⚠️ 工具调度中断：{e}\n\n请稍后重试。"
+                return
 
-        # ---- 有工具调用 → 执行工具，然后流式输出最终回答 ----
-        yield f"<!--thinking: 正在调用工具 {', '.join(tc['function']['name'] for tc in tool_calls)} -->\n"
+            message = resp["choices"][0]["message"]
+            tool_calls = message.get("tool_calls") or []
 
-        messages.append(message)  # assistant 消息（包含 tool_calls）
+            # 模型不再请求工具 → 当前内容即最终回答，转流式输出
+            if not tool_calls:
+                messages.append(message)
+                async for chunk in self._stream_answer(messages):
+                    yield chunk
+                return
 
-        # 执行每个工具
-        for tc in tool_calls:
-            func_name = tc["function"]["name"]
-            try:
-                func_args = json.loads(tc["function"]["arguments"])
-            except json.JSONDecodeError:
-                func_args = {}
-            tool_result = await self._run_tool(func_name, func_args)
-            messages.append({
-                "role": "tool",
-                "tool_call_id": tc["id"],
-                "content": tool_result,
-            })
-            # 给前端发一个 tool_result 标记
-            yield f"\n> *📎 工具 `{func_name}` 返回结果已获取*\n\n"
+            # 有工具调用 → 逐个执行后将结果喂回，进入下一轮决策
+            messages.append(message)
+            for tc in tool_calls:
+                func_name = tc["function"]["name"]
+                try:
+                    func_args = json.loads(tc["function"]["arguments"])
+                except json.JSONDecodeError:
+                    func_args = {}
+                yield _status("tool", f"正在调用工具 {func_name}")
+                tool_result = await self._run_tool(func_name, func_args)
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": tc["id"],
+                    "content": tool_result,
+                })
+                yield _status("tool_done", f"工具 {func_name} 执行完成")
+                # 给前端发一个 tool_result 标记
+                yield f"\n> *📎 工具 `{func_name}` 返回结果已获取*\n\n"
 
-        # 工具结果喂回 → 第二次 LLM 调用 → 流式输出最终引导
+        # ---- 轮次用尽仍有工具请求 → 强制收口，基于已有信息作答 ----
+        logger.info(f"工具调度达到上限 {MAX_TOOL_ROUNDS} 轮，强制收口")
+        messages.append({
+            "role": "user",
+            "content": "（工具调用已达上限，请直接基于以上已获取的信息作答，不要再请求工具。）",
+        })
+        async for chunk in self._stream_answer(messages):
+            yield chunk
+
+    async def _stream_answer(self, messages: list[dict]) -> AsyncGenerator[str, None]:
+        """把最终答案以流式方式吐出（带中断兜底）"""
+        yield _status("answering", "正在整合检索结果，生成引导回答")
         try:
             async for chunk in self.llm.chat_stream(messages, temperature=0.6):
                 yield chunk
         except Exception as e:
-            logger.error(f"流式回答中断（工具调用后）: {e}")
+            logger.error(f"流式回答中断: {e}")
             yield f"\n\n⚠️ 回答中断：{e}\n\n请稍后重试；若持续失败，请检查 `.env` 中的 LLM_API_KEY 与网络连通性。"
 
     # ---------- 单轮同步对话（不带工具调度，快速响应） ----------

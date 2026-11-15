@@ -4,7 +4,7 @@ from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from typing import Optional, List
-from app.agents.agent_service import get_agent
+from app.agents.agent_service import get_agent, STATUS_SENTINEL
 
 router = APIRouter(prefix="/api/chat", tags=["对话"])
 
@@ -38,6 +38,14 @@ async def chat_stream(req: ChatRequest):
         # Agent 流式输出（内部自动调度工具）
         full_text = ""
         async for chunk in agent.chat_stream(req.message, req.code or "", history):
+            # 旁路思考状态：拦截哨兵，单独以 status 事件下发，不计入正文
+            if chunk.startswith(STATUS_SENTINEL):
+                try:
+                    evt = json.loads(chunk[len(STATUS_SENTINEL):])
+                except json.JSONDecodeError:
+                    continue
+                yield _sse({"type": "status", "stage": evt.get("stage", ""), "detail": evt.get("detail", "")})
+                continue
             full_text += chunk
             yield _sse({"type": "chunk", "content": chunk})
 

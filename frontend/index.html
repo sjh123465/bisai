@@ -98,6 +98,30 @@
 
   .thinking-tag { color: #a78bfa; font-style: italic; font-size: 0.8rem; }
 
+  /* ====== AI 思考阶段指示器（SSE status 事件驱动） ====== */
+  .cm-status-box {
+    display: flex; flex-direction: column; gap: 4px;
+    margin-bottom: 8px; padding: 8px 10px; border-radius: 10px;
+    background: rgba(99,102,241,.08); border: 1px solid rgba(99,102,241,.22);
+  }
+  .cm-status-item { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #a5b4fc; }
+  .cm-status-item.done { color: #64748b; }
+  .cm-status-spinner {
+    width: 11px; height: 11px; flex-shrink: 0; border-radius: 50%;
+    border: 2px solid rgba(165,180,252,.3); border-top-color: #a5b4fc;
+    animation: cm-spin .7s linear infinite;
+  }
+  .cm-status-item.done .cm-status-spinner {
+    border: none; animation: none; width: auto; height: auto;
+    color: #34d399; font-size: 11px; line-height: 1;
+  }
+  @keyframes cm-spin { to { transform: rotate(360deg); } }
+  .cm-status-summary { margin-bottom: 8px; font-size: 11px; color: #818cf8; }
+  .cm-status-summary > summary { cursor: pointer; list-style: none; user-select: none; }
+  .cm-status-summary > summary::-webkit-details-marker { display: none; }
+  .cm-status-summary > summary::before { content: '▸ '; }
+  .cm-status-summary[open] > summary::before { content: '▾ '; }
+
   .typing-cursor::after { content: '▍'; animation: blink 1s infinite; color: #a5f3fc; }
   @keyframes blink { 0%, 50% { opacity: 1; } 51%, 100% { opacity: 0; } }
 
@@ -928,6 +952,78 @@
   }
 
   // ---------- 发送消息（SSE 流式） ----------
+  // ---------- AI 思考阶段指示器 ----------
+  const STATUS_META = {
+    planning:   { icon: '🧠', text: '理解问题 · 规划解题思路' },
+    replanning: { icon: '🔁', text: '结合工具结果继续规划' },
+    tool:       { icon: '🔧', text: '调用工具' },
+    tool_done:  { icon: '✅', text: '工具执行完成' },
+    answering:  { icon: '✍️', text: '生成引导回答' },
+  };
+
+  function attachStatusBox(wrap) {
+    const bubble = wrap.querySelector('.prose-cm');
+    const box = document.createElement('div');
+    box.className = 'cm-status-box';
+    bubble.parentElement.insertBefore(box, bubble);
+    return box;
+  }
+
+  function closeRunning(box) {
+    box.querySelectorAll('.cm-status-item.running').forEach(el => {
+      el.classList.remove('running');
+      el.classList.add('done');
+      const sp = el.querySelector('.cm-status-spinner');
+      if (sp) sp.textContent = '✓';
+      // 「正在 xxx」→「xxx」，已完成项的文案读起来更自然
+      const txt = el.querySelector('.cm-status-text');
+      if (txt) txt.textContent = txt.textContent.replace(/^正在/, '');
+    });
+  }
+
+  function updateStatus(box, stage, detail) {
+    if (!box) return;
+    // 工具完成事件：就地收尾上一条「调用工具」行，不新增行
+    if (stage === 'tool_done') {
+      const last = box.querySelector('.cm-status-item.running');
+      if (!last) return;
+      last.classList.remove('running');
+      last.classList.add('done');
+      const sp = last.querySelector('.cm-status-spinner');
+      if (sp) sp.textContent = '✓';
+      const txt = last.querySelector('.cm-status-text');
+      if (txt && detail) txt.textContent = detail;
+      return;
+    }
+    closeRunning(box);
+    const meta = STATUS_META[stage] || { icon: '•', text: stage };
+    const item = document.createElement('div');
+    item.className = 'cm-status-item running';
+    if (stage === 'tool') item.dataset.tool = '1';
+    item.innerHTML = '<span class="cm-status-spinner"></span>'
+      + `<span class="cm-status-icon">${meta.icon}</span>`
+      + '<span class="cm-status-text"></span>';
+    item.querySelector('.cm-status-text').textContent = detail || meta.text;
+    box.appendChild(item);
+  }
+
+  // 回答结束后把步骤折叠成一行摘要（可点击展开）
+  function collapseStatus(box) {
+    if (!box || box.dataset.collapsed) return;
+    if (!box.children.length) { box.remove(); return; }
+    box.dataset.collapsed = '1';
+    closeRunning(box);
+    const steps = box.querySelectorAll('.cm-status-item').length;
+    const tools = box.querySelectorAll('.cm-status-item[data-tool="1"]').length;
+    const details = document.createElement('details');
+    details.className = 'cm-status-summary';
+    const summary = document.createElement('summary');
+    summary.textContent = `🧠 已完成 ${steps} 步推理${tools ? ` · 工具调用 ${tools} 次` : ''}`;
+    details.appendChild(summary);
+    box.parentElement.insertBefore(details, box);
+    details.appendChild(box);
+  }
+
   async function sendMessage() {
     if (isStreaming) return;
     const input = document.getElementById('user-input');
@@ -944,6 +1040,7 @@
 
     // AI 消息占位
     const aiWrap = addMessage('assistant', '', true);
+    const statusBox = attachStatusBox(aiWrap);
     let buffer = '';
 
     try {
@@ -977,11 +1074,14 @@
           }
           if (!data) continue;
 
-          if (data.type === 'chunk') {
+          if (data.type === 'status') {
+            updateStatus(statusBox, data.stage, data.detail);
+          } else if (data.type === 'chunk') {
             buffer += data.content;
             updateMessage(aiWrap, buffer, true);
           } else if (data.type === 'end') {
             updateMessage(aiWrap, buffer, false);
+            collapseStatus(statusBox);
           }
         }
       }
@@ -990,6 +1090,7 @@
       chatHistory.push({role: 'user', content: message});
       chatHistory.push({role: 'assistant', content: buffer});
     } catch(e) {
+      collapseStatus(statusBox);
       updateMessage(aiWrap, '❌ 请求失败：' + e.message + '\n\n请确认后端已启动（运行 `python -m uvicorn app.main:app`），并在 .env 中填入 LLM_API_KEY', false);
     } finally {
       isStreaming = false;

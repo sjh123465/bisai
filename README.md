@@ -30,12 +30,12 @@
 
 | 亮点 | 技术 | 解决什么问题 |
 |------|------|-------------|
-| 🧠 **Agent 工具调用** | LLM Function Calling | 不是纯文本套壳 —— AI 自主调度 4 类工具（知识检索 / AST 分析 / 沙箱执行 / 学情推荐），苏格拉底式引导 |
-| 🔗 **GraphRAG 双引擎** | NetworkX + ChromaDB | 单一向量搜索缺乏学科结构 —— 图谱做多跳推理，向量库做教材原文召回，混合回答 |
+| 🧠 **Agent 多轮工具调用** | LLM Function Calling | 不是纯文本套壳 —— AI 自主调度 4 类工具（知识检索 / AST 分析 / 沙箱执行 / 学情推荐），单次提问内最多 3 轮「规划 → 调工具 → 再规划」，苏格拉底式引导 |
+| 🔗 **GraphRAG 双引擎** | NetworkX + ChromaDB + 智谱 embedding-3 | 单一向量搜索缺乏学科结构 —— 图谱做多跳推理，2048 维语义向量做教材原文召回，混合回答 |
 | ⚙️ **AST + LLM 双轨批改** | Python `ast` 模块 | 大模型"猜答案"不准 —— AST 提取客观特征（嵌套循环/递归/死循环/复杂度），LLM 只负责解释 |
 | 🎯 **BKT 式知识追踪** | 简化版掌握度更新 | 静态掌握度不反映真实水平 —— 每次答题后按知识点更新掌握概率（初始 0.3，答对 +0.15，答错 -0.10，夹紧 [0.05, 0.98]） |
 | 🖼️ **多模态截图答疑** | Zhipu GLM-4V-Flash | 编程问题常带截图 —— 直接上传报错/代码截图，视觉模型理解后答疑 |
-| 📺 **SSE 流式全链路** | FastAPI StreamingResponse | 等待 20 秒才出答案体验差 —— Agent 调度 + 回答全部流式输出，Markdown + 代码高亮实时渲染 |
+| 📺 **SSE 流式全链路** | FastAPI StreamingResponse | 等待 20 秒才出答案体验差 —— Agent 调度 + 回答全部流式输出，`status` 事件实时显示「规划 → 调工具 → 作答」思考阶段，Markdown + 代码高亮实时渲染 |
 
 ---
 
@@ -95,6 +95,10 @@
 ## 🧭 Agent 工具详解 — Function Calling 调度链
 
 Agent 不只是"调用一个 API 然后套壳"。它会**自主决策**调度哪些工具、什么顺序传参、什么时候停下来给人看。下面是 4 类核心工具的输入/输出签名：
+
+**多轮调度**：一次提问内最多进行 3 轮「规划 → 调用工具 → 结果喂回 → 再规划」，模型停止请求工具后才流式输出最终回答；若 3 轮后仍在请求工具，会注入收口提示，强制基于已有信息作答（见 `MAX_TOOL_ROUNDS`）。
+
+**思考状态可视化**：每轮的工具调度会通过旁路哨兵（`\x00STATUS\x00`）向 SSE 流插入 `status` 事件，前端渲染成「🧠 理解问题 → 🔧 调用工具 → ✍️ 生成回答」的实时步骤条，回答结束后折叠为一行可展开的推理摘要。状态事件不进入正文，因此不会被当作答案内容。
 
 ### 工具 1：`search_knowledge` — GraphRAG 混合检索
 
@@ -359,7 +363,7 @@ python -m uvicorn app.main:app --host 0.0.0.0 --port 8080
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| POST | `/api/chat/stream` | Agent 流式对话，SSE 事件类型：`start` / `chunk` / `end` |
+| POST | `/api/chat/stream` | Agent 流式对话，SSE 事件类型：`start` / `status`（思考阶段）/ `chunk` / `end` |
 | POST | `/api/chat/quick` | 非流式快速问答（一次性返回完整答案） |
 
 ### 🗺️ 知识图谱
@@ -472,7 +476,7 @@ CodeMentor/
 │   │   │   └── agent_service.py # Agent Function Calling 调度器（4 类工具 + 历史压缩）
 │   │   │
 │   │   ├── services/
-│   │   │   ├── llm_service.py   # DeepSeek 调用（Chat + Embedding，本地哈希降级）
+│   │   │   ├── llm_service.py   # 主 LLM 调用 + Embedding（智谱 embedding-3，失败降级本地哈希）
 │   │   │   ├── graph_service.py  # NetworkX 图谱 CRUD + 搜索 + 前置推理
 │   │   │   ├── vector_service.py # ChromaDB 向量检索
 │   │   │   ├── graphrag_service.py # 图谱 + 向量混合检索
@@ -570,7 +574,9 @@ pytest tests/ -v
 | `LLM_BASE_URL` | `https://api.deepseek.com/v1` | ✅ | 主 LLM 地址 |
 | `LLM_MODEL` | `deepseek-chat` | ✅ | 主 LLM 名称 |
 | `EMBEDDING_LOCAL` | `false` | 可选 | `true` 则用本地 sentence-transformers |
-| `EMBEDDING_MODEL` | `text-embedding-v3` | 可选 | Embedding 模型名（接口不可用时自动降级本地哈希向量） |
+| `EMBEDDING_MODEL` | `text-embedding-v3` | 可选 | Embedding 模型名（推荐智谱 `embedding-3`，2048 维） |
+| `EMBEDDING_BASE_URL` | 空 | 可选 | Embedding 接口地址；留空依次回退 多模态 → 主 LLM 地址 |
+| `EMBEDDING_API_KEY` | 空 | 可选 | Embedding Key；留空依次回退 多模态 → 主 LLM Key |
 | `MULTIMODAL_API_KEY` | — | 可选 | 视觉模型 Key（主模型不支持视觉时必填） |
 | `MULTIMODAL_BASE_URL` | — | 可选 | 视觉模型地址（如 `https://open.bigmodel.cn/api/paas/v4`） |
 | `MULTIMODAL_MODEL` | — | 可选 | 视觉模型名称（如 `glm-4v-flash`） |
@@ -592,7 +598,7 @@ pytest tests/ -v
 |------|------|------|
 | 主 LLM（Function Calling） | DeepSeek Chat | 💰 便宜（约 ¥1/M tokens） |
 | 多模态（截图答疑） | Zhipu GLM-4V-Flash | 🆓 免费额度 |
-| Embedding | 本地 sentence-transformers | 🆓 零成本 |
+| Embedding | Zhipu `embedding-3`（2048 维） | 🆓 有免费额度 |
 
 ---
 
@@ -667,6 +673,7 @@ docker compose -f docker/docker-compose.yml up -d --build
 | 10 | 📝 **练一练批改反馈彩色渐变卡片**（emoji 大图标 + 对错分色渐变背景 + 正确性徽章 + 🔁 再来一道 / 💬 问 AI 按钮） |
 | 11 | 📊 **学情学生行内联雷达图展开**（点击 ▶ → accordion 展开小雷达图 + 薄弱知识点彩色进度条 + 再点收起） |
 | 12 | 🗺️ **图谱节点鲜艳色升级 + 同类型群体高亮**（6 类节点换更饱和的亮紫/亮玫紫/亮翡翠/亮琥珀/亮玫红/亮天蓝；hover 同族节点同步亮+辉光、异族节点灰化 opacity=0.35） |
+| 13 | 🧠 **AI 思考阶段指示器**（`status` 事件驱动：理解问题 → 调用工具 → 生成回答 实时步骤条 + 旋转动画，回答结束自动折叠为「已完成 N 步推理 · 工具调用 N 次」可展开摘要） · 🔁 **Agent 多轮工具调度**（单次提问最多 3 轮规划-调用循环，轮次用尽自动收口） · 🔗 **真实语义 Embedding**（智谱 `embedding-3`，2048 维，替代原 384 维字符哈希降级方案） |
 
 **右侧边栏 × Tab 显示矩阵**：
 
@@ -705,11 +712,17 @@ Function Calling 也是标准 OpenAI 格式，只要模型支持 tool_calls 字�
 
 <details><summary><b>Q: 为什么 Embedding 会 404？</b></summary>
 
-A: DeepSeek Chat（`deepseek-chat`）**没有 Embedding Endpoint**。`/embeddings` 请求会返回 404。这不是你的配置问题。解决方案：
+A: DeepSeek Chat（`deepseek-chat`）**没有 Embedding Endpoint**，`/embeddings` 请求会返回 404。这不是你的配置问题。
 
-1. 换 `deepseek-api` 系列模型（有 Embedding）
-2. 或设 `EMBEDDING_LOCAL=true` — 自动降级为本地 bigram-hash 向量（已内置）
-3. 或换一个有 Embedding 的提供商（如 OpenAI / Zhipu / Qwen）
+推荐配置：复用智谱 Key 调 `embedding-3`（2048 维，与 GLM-4V 同一个 Key）：
+
+```env
+EMBEDDING_MODEL=embedding-3
+EMBEDDING_BASE_URL=https://open.bigmodel.cn/api/paas/v4
+EMBEDDING_API_KEY=your_zhipu_api_key
+```
+
+三级回退：`EMBEDDING_*` → `MULTIMODAL_*` → 主 LLM；三者都不可用时降级为本地字符 bigram 哈希向量（384 维，保证检索链路不中断）。**换 Embedding 模型后向量维度会变，需删除 `data/chroma` 目录让向量库重建。**
 </details>
 
 <details><summary><b>Q: 沙箱安全吗？会不会跑恶意代码？</b></summary>
@@ -762,7 +775,7 @@ A: **本项目实现的是 BKT 的工程简化版，不是严格的贝叶斯公�
 |------|------|
 | 图谱空节点 | 检查 `.env` 中 `LLM_API_KEY` 是否正确（种子脚本需调用 LLM） |
 | 沙箱执行超时 | 调整 `SANDBOX_TIMEOUT` 或检查是否进入无限循环（AST 死循环检测） |
-| Embedding 404 | 主模型可能不支持 Embedding，设置 `EMBEDDING_LOCAL=true` 降级为本地哈希向量 |
+| Embedding 404 | 主模型（如 DeepSeek）不支持 Embedding，按上文配置 `EMBEDDING_BASE_URL` + `EMBEDDING_API_KEY` 指向智谱 `embedding-3` |
 | `/api/teacher/*` 403 | 教师接口需 `teacher` 角色，用 teacher/123456 登录 |
 | 前端 CORS | 后端已 `allow_origins=["*"]`，若开发时跨域仍报错检查启动端口 |
 
