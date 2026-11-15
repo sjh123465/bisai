@@ -11,6 +11,7 @@ router = APIRouter(prefix="/api/exam", tags=["出题批改"])
 class GenerateRequest(BaseModel):
     concept: str
     qtype: str = "any"  # choice / judge / code / any
+    difficulty: str = "medium"  # easy / medium / hard
 
 
 class PaperRequest(BaseModel):
@@ -34,7 +35,7 @@ class GradeRequest(BaseModel):
 @router.post("/generate")
 async def generate_question(req: GenerateRequest):
     exam = get_exam()
-    return await exam.generate_question(req.concept, req.qtype)
+    return await exam.generate_question(req.concept, req.qtype, req.difficulty)
 
 
 @router.post("/paper")

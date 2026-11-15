@@ -9,6 +9,13 @@ import { jsStr, mdSafe } from '../core/render.js';
   // 每 30 秒自动刷新
 
   // ---------- 练一练快速启动（空状态引导按钮） ----------
+  /** 新手入门路径：预设知识点 + 难度后直接出题 */
+  async function startBeginner(conceptName, difficulty) {
+    const diffSel = document.getElementById('exam-difficulty');
+    if (diffSel && difficulty) diffSel.value = difficulty;
+    await quickExam(conceptName, '任意题型');
+  }
+
   async function quickExam(conceptName, typeName) {
     const sel = document.getElementById('exam-concept');
     const typeSel = document.getElementById('exam-type');
@@ -37,6 +44,8 @@ import { jsStr, mdSafe } from '../core/render.js';
   async function generateQuestionDirect() {
     const concept = document.getElementById('exam-concept').value;
     const qtype = document.getElementById('exam-type').value;
+    const diffEl = document.getElementById('exam-difficulty');
+    const difficulty = diffEl ? diffEl.value : 'medium';
     if (!concept) return;
     const q = document.getElementById('exam-question');
     const empty = document.getElementById('exam-empty');
@@ -49,7 +58,7 @@ import { jsStr, mdSafe } from '../core/render.js';
     try {
       const resp = await fetch(API + '/exam/generate', {
         method: 'POST', headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ concept: concept, qtype: qtype }),
+        body: JSON.stringify({ concept: concept, qtype: qtype, difficulty: difficulty }),
       });
       const data = await resp.json();
       if (!resp.ok || data.error || !data.question) {
@@ -344,6 +353,8 @@ import { jsStr, mdSafe } from '../core/render.js';
       const correct = allPass || score >= 80;
       recordAnswer(currentQuestion.concept_id, currentQuestion, code, correct);
       markPaperAnswered();
+      window.refreshTodayStats?.();
+      window.refreshProgressCurve?.();
     } catch (e) {
       renderGradeResult({ review: { correctness: '批改失败', correctness_score: 0, bugs: [e.message] } }, code);
     }
@@ -411,6 +422,85 @@ import { jsStr, mdSafe } from '../core/render.js';
       </div>`;
   }
 
+  /**
+   * PEP8 风格检查（后端 pycodestyle），结果渲染在代码编辑器下方。
+   * @returns {Promise<void>}
+   */
+  async function checkPep8() {
+    const code = document.getElementById('exam-student-code').value;
+    const box = document.getElementById('pep8-result');
+    if (!code.trim()) {
+      box.className = 'mt-2 text-xs rounded-lg p-2 border border-amber-500/30 bg-amber-500/10 text-amber-300';
+      box.classList.remove('hidden');
+      box.textContent = '先写点代码再检查～';
+      return;
+    }
+    box.className = 'mt-2 text-xs rounded-lg p-2 border border-slate-600/50 bg-slate-900/60 text-slate-300';
+    box.classList.remove('hidden');
+    box.textContent = '⏳ 正在检查代码风格...';
+    try {
+      const resp = await fetch(API + '/code/style', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ code })
+      });
+      const d = await resp.json();
+      if (d.clean) {
+        box.className = 'mt-2 text-xs rounded-lg p-2 border border-emerald-500/30 bg-emerald-500/10 text-emerald-300';
+        box.textContent = d.summary || '✅ 通过 PEP8 检查';
+        return;
+      }
+      const issues = (d.issues || []).slice(0, 6);
+      box.className = 'mt-2 text-xs rounded-lg p-2 border border-amber-500/30 bg-amber-500/10 text-amber-200';
+      box.innerHTML = `<div class="font-medium mb-1">${d.summary || '发现风格问题'}</div>` +
+        issues.map(i => `<div class="font-mono text-[11px] text-amber-200/80">第 ${i.line} 行 · ${i.message}</div>`).join('');
+    } catch (e) {
+      box.className = 'mt-2 text-xs rounded-lg p-2 border border-rose-500/30 bg-rose-500/10 text-rose-300';
+      box.textContent = '检查失败：' + e.message;
+    }
+  }
+
+  /** 拉取今日练习数据（答题数 / 正确率 / 连续答对），供右侧栏展示 */
+  async function refreshTodayStats() {
+    const sid = currentStudentId();
+    try {
+      const d = await fetch(API + '/bkt/today/' + encodeURIComponent(sid)).then(r => r.json());
+      const answeredEl = document.getElementById('today-answered');
+      if (!answeredEl) return;
+      answeredEl.textContent = d.answered ?? 0;
+      document.getElementById('today-accuracy').textContent =
+        d.accuracy === null || d.accuracy === undefined ? '—' : Math.round(d.accuracy * 100) + '%';
+      document.getElementById('today-streak').textContent = d.streak ?? 0;
+      const empty = document.getElementById('today-empty');
+      if (empty) empty.classList.toggle('hidden', (d.answered || 0) > 0);
+    } catch (e) {
+      // 后端未启动时保持默认占位
+    }
+  }
+
+  /** 编辑器快捷键：Ctrl/Cmd+Enter 提交，Tab 插入两空格 */
+  function bindEditorShortcuts() {
+    const ta = document.getElementById('exam-student-code');
+    if (!ta || ta.dataset.bound) return;
+    ta.dataset.bound = '1';
+    ta.addEventListener('keydown', e => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+        e.preventDefault();
+        gradeQuestion();
+      } else if (e.key === 'Tab') {
+        e.preventDefault();
+        const s = ta.selectionStart, t = ta.selectionEnd;
+        ta.value = ta.value.slice(0, s) + '  ' + ta.value.slice(t);
+        ta.selectionStart = ta.selectionEnd = s + 2;
+      }
+    });
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', bindEditorShortcuts);
+  } else {
+    bindEditorShortcuts();
+  }
+
 // 导出 + 供 HTML 内联 onclick 使用
-export { loadExamConcepts, generateQuestion, quickExam, generatePaper, gradeQuestion, checkChoice, checkJudge, pickRetry, showHint, nextPaperQuestion };
-Object.assign(window, { loadExamConcepts, generateQuestion, quickExam, generatePaper, gradeQuestion, checkChoice, checkJudge, pickRetry, showHint, nextPaperQuestion, loadRetryQuestions });
+export { loadExamConcepts, generateQuestion, quickExam, generatePaper, gradeQuestion, checkChoice, checkJudge, pickRetry, showHint, nextPaperQuestion, startBeginner, checkPep8, refreshTodayStats };
+Object.assign(window, { loadExamConcepts, generateQuestion, quickExam, generatePaper, gradeQuestion, checkChoice, checkJudge, pickRetry, showHint, nextPaperQuestion, loadRetryQuestions, startBeginner, checkPep8, refreshTodayStats });

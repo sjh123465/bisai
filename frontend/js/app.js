@@ -3,7 +3,7 @@
  * @module app
  */
 import { API, currentStudentId } from './core/env.js';
-import { addMessage, updateMessage } from './core/render.js';
+import { addMessage, updateMessage, jsStr } from './core/render.js';
 import { attachStatusBox, updateStatus, collapseStatus } from './core/status.js';
 import { loadGraph } from './features/graph.js';
 import { loadTeacher } from './features/analytics.js';
@@ -180,8 +180,8 @@ import './features/voice.js';
     });
     updateSidebar(name);
     if (name === 'graph') loadGraph();
-    if (name === 'teacher') loadTeacher();
-    if (name === 'practice') loadExamConcepts();
+    if (name === 'teacher') { loadTeacher(); window.refreshProgressCurve?.(); }
+    if (name === 'practice') { loadExamConcepts(); window.refreshTodayStats?.(); }
   }
 
   // 根据当前 Tab 显示所有 data-tabs 元素（通用：右侧边栏 + 输入栏快捷操作等）
@@ -261,6 +261,7 @@ import './features/voice.js';
     const code = document.getElementById('code-input').value.trim();
     input.value = '';
     isStreaming = true;
+    hideWelcome();
     document.getElementById('send-btn').disabled = true;
 
     // 用户消息
@@ -310,6 +311,7 @@ import './features/voice.js';
           } else if (data.type === 'end') {
             updateMessage(aiWrap, buffer, false);
             collapseStatus(statusBox);
+            trackTopics(buffer);
           }
         }
       }
@@ -328,8 +330,66 @@ import './features/voice.js';
 
   function sendQuick(msg) {
     switchTab('chat');
+    hideWelcome();
     document.getElementById('user-input').value = msg;
     sendMessage();
+  }
+
+  /** 点击欢迎页能力卡片：隐藏欢迎区并直接发起示例提问 */
+  function startFromCard(prompt) {
+    switchTab('chat');
+    hideWelcome();
+    sendQuick(prompt);
+  }
+
+  function hideWelcome() {
+    const w = document.getElementById('chat-welcome');
+    if (w) w.classList.add('hidden');
+  }
+
+  // ---------- 对话涉及知识点追踪 ----------
+  const chatTopics = new Map(); // nodeId -> {name, hits}
+
+  /** 从回答内容里提取图谱节点引用（graph: 链接、节点名、工具徽章） */
+  function trackTopics(text) {
+    if (!text) return;
+    // [名称](graph:节点ID)
+    let m;
+    const re = /\[([^\]]+)\]\(graph:([^)]+)\)/g;
+    while ((m = re.exec(text)) !== null) {
+      addTopic(m[2], m[1]);
+    }
+    renderTopics();
+  }
+
+  function addTopic(id, name) {
+    const cur = chatTopics.get(id) || { name: name || id, hits: 0 };
+    cur.hits += 1;
+    if (name) cur.name = name;
+    chatTopics.set(id, cur);
+  }
+
+  function renderTopics() {
+    const list = document.getElementById('side-topic-list');
+    const count = document.getElementById('side-topic-count');
+    if (!list) return;
+    if (chatTopics.size === 0) {
+      list.innerHTML = '<p class="text-[11px] text-slate-500">发消息后，AI 命中的图谱节点会自动出现在这里</p>';
+      if (count) count.textContent = '0 个';
+      return;
+    }
+    if (count) count.textContent = chatTopics.size + ' 个';
+    list.innerHTML = Array.from(chatTopics.entries()).slice(0, 8).map(([id, t]) =>
+      `<button onclick="focusGraphNode(${jsStr(id)})" title="点击定位到图谱"
+        class="px-2 py-0.5 rounded-full bg-indigo-500/15 border border-indigo-500/30 text-indigo-300 text-[11px] hover:bg-indigo-500/30 transition">
+        ${t.name}${t.hits > 1 ? ' ×' + t.hits : ''}
+      </button>`
+    ).join('');
+  }
+
+  function clearTopics() {
+    chatTopics.clear();
+    renderTopics();
   }
 
 
@@ -414,4 +474,4 @@ import './features/voice.js';
   }
 
 // HTML 内联 onclick / onchange 需要全局可见
-Object.assign(window, { openLogin, closeLogin, showLoginHint, fillDemo, refreshUserUI, doLogout, doLogin, checkAPI, switchTab, updateSidebar, loadSidePractice, loadSideWeak, sendMessage, sendQuick, toggleCodePanel, clearCode, runCode, analyzeCode, uploadImage });
+Object.assign(window, { openLogin, closeLogin, showLoginHint, fillDemo, refreshUserUI, doLogout, doLogin, checkAPI, switchTab, updateSidebar, loadSidePractice, loadSideWeak, sendMessage, sendQuick, startFromCard, trackTopics, clearTopics, hideWelcome, toggleCodePanel, clearCode, runCode, analyzeCode, uploadImage });

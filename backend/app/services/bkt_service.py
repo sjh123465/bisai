@@ -67,6 +67,83 @@ class BKTService:
         """获取学生所有知识点掌握度"""
         return self._data.get(student_id, {})
 
+    def get_daily_trend(self, student_id: str, days: int = 7) -> list[dict]:
+        """近 N 天答题趋势：每日答题数、正确数、正确率、当日结束时平均掌握度
+
+        掌握度通过重放答题历史得到，因此不需要额外存时间序列。
+        """
+        from datetime import datetime, timedelta
+        from collections import defaultdict
+
+        today = datetime.now().date()
+        start = today - timedelta(days=days - 1)
+        buckets = defaultdict(lambda: {"answered": 0, "correct": 0})
+        replay: dict[str, float] = {}
+        daily_mastery: dict = {}
+
+        records = sorted(self._history.get(student_id, []), key=lambda r: r.get("time", ""))
+        for r in records:
+            cid = r.get("concept_id")
+            if not cid:
+                continue
+            try:
+                d = datetime.fromisoformat(r["time"]).date()
+            except (KeyError, ValueError):
+                continue
+            correct = bool(r.get("correct"))
+            base = replay.get(cid, 0.3)
+            replay[cid] = max(0.05, min(0.98, base + (0.15 if correct else -0.10)))
+            if d < start:
+                continue  # 窗口外的历史只用于重放初值
+            buckets[d]["answered"] += 1
+            buckets[d]["correct"] += int(correct)
+            daily_mastery[d] = dict(replay)
+
+        trend = []
+        last_mastery = dict(replay)
+        for i in range(days):
+            d = start + timedelta(days=i)
+            b = buckets.get(d, {"answered": 0, "correct": 0})
+            if d in daily_mastery:
+                last_mastery = daily_mastery[d]
+            trend.append({
+                "date": d.isoformat(),
+                "label": f"{d.month}/{d.day}",
+                "answered": b["answered"],
+                "correct": b["correct"],
+                "accuracy": round(b["correct"] / b["answered"], 3) if b["answered"] else None,
+                "mastery": round(sum(last_mastery.values()) / len(last_mastery), 4) if last_mastery else 0.0,
+            })
+        return trend
+
+    def get_today_stats(self, student_id: str) -> dict:
+        """今日练习统计：答题数 / 正确率 / 当前连续答对"""
+        from datetime import datetime
+
+        today = datetime.now().date()
+        recs = []
+        for r in self._history.get(student_id, []):
+            try:
+                if datetime.fromisoformat(r["time"]).date() == today:
+                    recs.append(r)
+            except (KeyError, ValueError):
+                continue
+
+        answered = len(recs)
+        correct = sum(1 for r in recs if r.get("correct"))
+        streak = 0
+        for r in reversed(recs):
+            if r.get("correct"):
+                streak += 1
+            else:
+                break
+        return {
+            "answered": answered,
+            "correct": correct,
+            "accuracy": round(correct / answered, 3) if answered else None,
+            "streak": streak,
+        }
+
     def get_all_students(self) -> list[str]:
         """获取所有学生 ID"""
         return list(self._data.keys())

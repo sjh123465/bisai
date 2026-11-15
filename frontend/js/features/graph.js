@@ -2,12 +2,33 @@
  * @file 知识图谱力导向可视化与节点检索定位
  * @module features/graph
  */
-import { API } from '../core/env.js';
+import { API, currentStudentId } from '../core/env.js';
 
   // ---------- 知识图谱可视化（力导向布局） ----------
   let graphData = null;
   let graphDragState = null;    // 当前拖拽的节点及渲染引用
   let graphJustDragged = false; // 拖拽后抑制误触发节点点击
+  // 图谱增强：缩放 / 分类筛选 / hover 数据联动
+  let graphNodeEls = {};        // id -> {circle, text, bg, category}
+  let graphEdgeEls = [];        // [{source, target, line}]
+  let graphDegree = {};         // id -> 连接度
+  let graphHiddenCats = new Set();
+  let graphMastery = {};        // id -> 掌握度
+  let graphWrong = {};          // id -> 错题次数
+  let graphPrereq = {};         // id -> [前置节点名]
+  let graphZoom = 1;
+
+  /** 拉取图谱 hover 需要的联动数据（掌握度 + 错题次数），失败不影响渲染 */
+  async function loadGraphMeta() {
+    const sid = currentStudentId();
+    try {
+      graphMastery = await fetch(API + '/bkt/mastery-map/' + encodeURIComponent(sid)).then(r => r.json());
+    } catch (e) { graphMastery = {}; }
+    try {
+      graphWrong = await fetch(API + '/wrongbook/counts/' + encodeURIComponent(sid)).then(r => r.json());
+    } catch (e) { graphWrong = {}; }
+  }
+
   async function loadGraph() {
     const statsEl = document.getElementById('graph-stats');
     const loader = document.getElementById('graph-loader');
@@ -19,6 +40,8 @@ import { API } from '../core/env.js';
       const resp = await fetch(API + '/knowledge/graph');
       graphData = await resp.json();
       statsEl.textContent = `共 ${graphData.nodes.length} 节点 · ${graphData.edges.length} 边`;
+      await loadGraphMeta();
+      rebuildPrereq();
       renderGraph(graphData);
     } catch(e) { statsEl.textContent = '加载失败: ' + e.message; }
     finally {
@@ -170,7 +193,7 @@ import { API } from '../core/env.js';
       // 原生 SVG tooltip（hover 显示类型和连接度）
       const deg = degree[n.id] || 0;
       circle.innerHTML = `<title>📌 ${n.name}\n📂 类型：${catLabels[n.category]||n.category}\n🔗 连接度：${deg}（前置/后继）</title>`;
-      circle.onmouseenter = () => {
+      circle.onmouseenter = (ev) => {
         circle.style.filter = `brightness(1.25) drop-shadow(0 0 6px ${categoryGlow[n.category]})`;
         // 同类型节点同步变亮（群体高亮）
         Object.values(nodeEls).forEach(ne => {
@@ -181,19 +204,22 @@ import { API } from '../core/env.js';
             ne.circle.style.opacity = '0.35';
           }
         });
+        showGraphTooltip(ev, n, deg, catLabels);
       };
+      circle.onmousemove = (ev) => showGraphTooltip(ev, n, deg, catLabels);
       circle.onmouseleave = () => {
         circle.style.filter = '';
         Object.values(nodeEls).forEach(ne => {
           if (ne.circle) { ne.circle.style.filter = ''; ne.circle.style.opacity = '1'; }
         });
+        hideGraphTooltip();
       };
       circle.onclick = () => {
         if (graphJustDragged) { graphJustDragged = false; return; }
         window.sendQuick(n.name);
       };
       svg.appendChild(circle);
-      nodeEls[n.id] = {circle, text: null};
+      nodeEls[n.id] = {circle, text: null, category: n.category};
 
       // ---- 拖拽交互 ----
       circle.addEventListener('pointerdown', (ev) => {
@@ -313,6 +339,129 @@ import { API } from '../core/env.js';
       svg.addEventListener('pointerup', () => { graphDragState = null; });
       svg.addEventListener('pointerleave', () => { graphDragState = null; });
     }
+
+    // 暴露渲染结果给筛选 / 缩放 / hover 模块
+    graphNodeEls = nodeEls;
+    graphEdgeEls = edgeEls;
+    graphDegree = degree;
+    initGraphZoom(svg, width, height);
+    applyGraphFilter();
+    applyLabelDensity();
+  }
+
+  /** 从边关系推导每个节点的前置知识点（边的 source → target） */
+  function rebuildPrereq() {
+    if (!graphData) return;
+    const byId = Object.fromEntries((graphData.nodes || []).map(n => [n.id, n.name || n.id]));
+    graphPrereq = {};
+    for (const e of (graphData.edges || [])) {
+      (graphPrereq[e.target] = graphPrereq[e.target] || []).push(byId[e.source] || e.source);
+    }
+  }
+
+  /** 分类筛选：点击图例隐藏 / 显示某一类节点（连带隐藏其边） */
+  function toggleGraphCategory(cat) {
+    if (graphHiddenCats.has(cat)) graphHiddenCats.delete(cat);
+    else graphHiddenCats.add(cat);
+    applyGraphFilter();
+  }
+
+  function resetGraphFilter() {
+    graphHiddenCats.clear();
+    applyGraphFilter();
+  }
+
+  function applyGraphFilter() {
+    for (const [id, els] of Object.entries(graphNodeEls)) {
+      const hidden = graphHiddenCats.has(els.category);
+      const disp = hidden ? 'none' : '';
+      if (els.circle) els.circle.style.display = disp;
+      if (els.text) els.text.style.display = disp;
+      if (els.bg) els.bg.style.display = disp;
+    }
+    for (const e of graphEdgeEls) {
+      const a = graphNodeEls[e.source], b = graphNodeEls[e.target];
+      const hidden = (a && graphHiddenCats.has(a.category)) || (b && graphHiddenCats.has(b.category));
+      if (e.line) e.line.style.display = hidden ? 'none' : '';
+    }
+    document.querySelectorAll('.legend-item').forEach(el => {
+      const off = graphHiddenCats.has(el.dataset.cat);
+      el.style.opacity = off ? '0.35' : '1';
+      el.style.textDecoration = off ? 'line-through' : '';
+    });
+  }
+
+  /** 缩小视图只保留高权重（连接度高）节点标签，放大后全部展示 */
+  function applyLabelDensity() {
+    const entries = Object.entries(graphNodeEls);
+    if (!entries.length) return;
+    const sorted = entries.slice().sort((a, b) => (graphDegree[b[0]] || 0) - (graphDegree[a[0]] || 0));
+    const limit = graphZoom < 0.9 ? 10 : graphZoom < 1.3 ? 22 : graphZoom < 1.8 ? 40 : sorted.length;
+    const keep = new Set(sorted.slice(0, limit).map(x => x[0]));
+    for (const [id, els] of entries) {
+      if (!els.text) continue;
+      const show = keep.has(id);
+      els.text.style.display = show ? '' : 'none';
+      if (els.bg) els.bg.style.display = show ? '' : 'none';
+    }
+    // 被分类筛选隐藏的节点保持隐藏
+    if (graphHiddenCats.size) applyGraphFilter();
+  }
+
+  /** 滚轮缩放（以鼠标位置为中心），viewBox 越大=越缩小 */
+  function initGraphZoom(svg, width, height) {
+    if (svg._zoomInit) return;
+    svg._zoomInit = true;
+    svg.addEventListener('wheel', (ev) => {
+      ev.preventDefault();
+      const rect = svg.getBoundingClientRect();
+      const vb = (svg.getAttribute('viewBox') || `0 0 ${width} ${height}`).split(/\s+/).map(Number);
+      let [x, y, w, h] = vb;
+      const factor = ev.deltaY > 0 ? 1.15 : 0.87;
+      const nw = w * factor;
+      const minW = width / 4, maxW = width * 1.5;
+      if (nw < minW || nw > maxW) return;
+      const mx = x + ((ev.clientX - rect.left) / rect.width) * w;
+      const my = y + ((ev.clientY - rect.top) / rect.height) * h;
+      const ratio = nw / w;
+      x = mx - (mx - x) * ratio;
+      y = my - (my - y) * ratio;
+      h = h * ratio;
+      svg.setAttribute('viewBox', `${x} ${y} ${nw} ${h}`);
+      graphZoom = width / nw;
+      applyLabelDensity();
+    }, { passive: false });
+  }
+
+  /** hover 浮层：掌握度 + 前置知识点 + 错题次数 / 连接度 */
+  function showGraphTooltip(ev, node, deg, catLabels) {
+    const tip = document.getElementById('graph-tooltip');
+    const panel = document.getElementById('panel-graph');
+    if (!tip || !panel) return;
+    const score = graphMastery[node.id];
+    const mastery = (score === undefined || score === null)
+      ? '<span class="text-slate-500">未练习</span>'
+      : `<span class="${score >= 0.6 ? 'text-emerald-300' : 'text-rose-300'} font-semibold">${Math.round(score * 100)}%</span>`;
+    const wrong = graphWrong[node.id] || 0;
+    const prereqs = (graphPrereq[node.id] || []).slice(0, 3);
+    tip.innerHTML = `
+      <div class="font-semibold text-slate-100 mb-1">${node.name}</div>
+      <div class="text-slate-400 mb-1.5">${catLabels[node.category] || node.category} · 连接度 ${deg}</div>
+      <div class="flex items-center justify-between gap-3"><span class="text-slate-400">BKT 掌握度</span>${mastery}</div>
+      <div class="flex items-center justify-between gap-3"><span class="text-slate-400">累计错题</span><span class="${wrong ? 'text-rose-300' : 'text-slate-500'}">${wrong ? wrong + ' 次' : '0 次'}</span></div>
+      <div class="mt-1 text-slate-400">前置：${prereqs.length ? prereqs.join('、') : '<span class="text-slate-600">无</span>'}</div>
+      <div class="mt-1.5 text-[10px] text-indigo-300/80">点击 → 让 AI 讲解</div>`;
+    tip.classList.remove('hidden');
+    const r = panel.getBoundingClientRect();
+    const left = Math.min(ev.clientX - r.left + 14, r.width - 250);
+    const top = Math.max(8, Math.min(ev.clientY - r.top + 14, r.height - 150));
+    tip.style.left = left + 'px';
+    tip.style.top = top + 'px';
+  }
+
+  function hideGraphTooltip() {
+    const tip = document.getElementById('graph-tooltip');
+    if (tip) tip.classList.add('hidden');
   }
 
   // ---------- 图谱快速搜索 ----------
@@ -371,6 +520,8 @@ import { API } from '../core/env.js';
           pt.y = parseFloat(node.getAttribute('cy')) || 0;
           const matrix = svg.getScreenCTM().inverse();
           svg.setAttribute('viewBox', `${pt.x - 300} ${pt.y - 200} 600 400`);
+          graphZoom = (svg.clientWidth || 900) / 600;
+          applyLabelDensity();
         } catch(_) {}
         setTimeout(() => { node.style.filter = ''; }, 3000);
       } else {
@@ -380,5 +531,5 @@ import { API } from '../core/env.js';
   }
 
 // 导出 + 供 HTML 内联 onclick 使用
-export { loadGraph, renderGraph, graphQuickSearch, focusGraphNode };
-Object.assign(window, { loadGraph, renderGraph, graphQuickSearch, focusGraphNode });
+export { loadGraph, renderGraph, graphQuickSearch, focusGraphNode, toggleGraphCategory, resetGraphFilter };
+Object.assign(window, { loadGraph, renderGraph, graphQuickSearch, focusGraphNode, toggleGraphCategory, resetGraphFilter, hideGraphTooltip });

@@ -31,7 +31,7 @@ QUESTION_PROMPT = """你是资深计算机出题专家。请严格按照给定�
 {{"type":"code","question":"题目描述","function_name":"solve","input_desc":"输入格式说明","output_desc":"输出格式说明","test_cases":[{{"input":"1 2 3","expected":"[1, 2, 3]"}},{{"input":"3 1 2","expected":"[1, 2, 3]"}}],"hint":"解题思路提示","complexity":"预期复杂度"}}
 
 约束：
-1. 题目必须考察「{concept}」，难度适中
+1. 题目必须考察「{concept}」，难度严格符合上方题型要求中标注的难度
 2. 编程题的 test_cases 用例要覆盖边界情况
 3. explanation/hint 用中文，简洁
 """
@@ -42,11 +42,12 @@ class ExamService:
         self.llm = get_llm()
         self.graph = get_graph()
 
-    async def generate_question(self, concept: str, qtype: str = "any"):
+    async def generate_question(self, concept: str, qtype: str = "any", difficulty: str = "medium"):
         """
         生成一道题
         concept: 知识点 ID 或名称
         qtype: choice / judge / code / any
+        difficulty: easy / medium / hard
         """
         # 1. 查图谱拿节点 + 前置知识
         node = None
@@ -64,11 +65,17 @@ class ExamService:
             "code": "请生成编程题（带测试用例）",
         }.get(qtype, "请在选择题/判断题/编程题中任选一种最合适的题型")
 
+        difficulty_hint = {
+            "easy": "简单：考察概念记忆与基本用法，编程题只需实现最直接的逻辑",
+            "medium": "中等：考察原理理解与常见陷阱，编程题需要处理一般情况",
+            "hard": "困难：考察边界条件、复杂度权衡与易错细节，编程题必须覆盖边界用例",
+        }.get(difficulty, "中等：考察原理理解与常见陷阱")
+
         prompt = QUESTION_PROMPT.format(
             concept=concept_name,
             concept_desc=concept_desc or "无",
             prerequisites="、".join(prereq_names),
-            qtype_hint=qtype_hint,
+            qtype_hint=f"{qtype_hint}（难度：{difficulty_hint}）",
         )
 
         messages = [

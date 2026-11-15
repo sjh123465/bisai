@@ -84,11 +84,21 @@ import { mdSafe } from '../core/render.js';
   function renderStudentList(students, forbidden = false) {
     const el = document.getElementById('student-list');
     if (forbidden) {
-      el.innerHTML = '<p class="text-xs text-amber-400/80">🔒 学生学情列表为教师专属功能，请用 teacher 账号登录</p>';
+      // 学生视角：不展示冷冰冰的锁，而是引导去练习，让画像有数据
+      el.innerHTML = `
+        <div class="text-center py-4 px-3 rounded-xl bg-gradient-to-br from-indigo-500/10 to-purple-500/10 border border-indigo-500/20">
+          <p class="text-sm text-slate-200 mb-1">👤 这是你的个人学情画像</p>
+          <p class="text-[11px] text-slate-400 mb-3">上方雷达图与右侧进步曲线会随答题自动更新；班级对比需教师账号</p>
+          <button onclick="switchTab('practice')" class="px-4 py-2 rounded-lg bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white text-xs font-medium shadow-lg shadow-indigo-600/25 transition">📝 去做第一道题，生成你的学情画像</button>
+        </div>`;
       return;
     }
     if (students.length === 0) {
-      el.innerHTML = '<p class="text-xs text-slate-500">暂无学生数据 — 学生答题后自动出现</p>';
+      el.innerHTML = `
+        <div class="text-center py-4 px-3 rounded-xl bg-slate-900/60 border border-slate-700/50">
+          <p class="text-xs text-slate-400 mb-2.5">还没有学生答题记录</p>
+          <button onclick="switchTab('practice')" class="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs transition">📝 去练一题，产生第一条数据</button>
+        </div>`;
       return;
     }
     el.innerHTML = students.map((s, idx) => {
@@ -352,6 +362,7 @@ import { mdSafe } from '../core/render.js';
   window.addEventListener('resize', () => {
     if (radarChart) radarChart.resize();
     if (heatmapChart) heatmapChart.resize();
+    if (progressChart) progressChart.resize();
   });
 
   // 初始化
@@ -409,23 +420,73 @@ import { mdSafe } from '../core/render.js';
     try {
       const g = await fetch('/api/knowledge/graph').then(r => r.json()).catch(() => null);
       if (g) {
-        document.getElementById('stat-nodes').textContent = g.nodes?.length ?? '-';
-        document.getElementById('stat-edges').textContent = g.edges?.length ?? '-';
+        document.getElementById('stat-nodes').textContent = g.nodes?.length ?? '—';
+        document.getElementById('stat-edges').textContent = g.edges?.length ?? '—';
       }
       try {
         const t = await fetch('/api/teacher/dashboard');
         if (t.ok) {
           const d = await t.json();
-          document.getElementById('stat-students').textContent = d.class_summary?.total_students ?? '-';
+          const stuEl = document.getElementById('stat-students');
+          const weakEl = document.getElementById('stat-weak');
+          const total = d.class_summary?.total_students;
+          stuEl.textContent = total ?? '暂无';
+          stuEl.classList.toggle('text-sm', !total);
           const heatmap = d.heatmap || {};
           const weak = Object.values(heatmap).filter(h => h.avg < 0.6).length;
-          document.getElementById('stat-weak').textContent = weak;
+          weakEl.textContent = Object.keys(heatmap).length ? weak : '暂无';
+          weakEl.classList.toggle('text-sm', !Object.keys(heatmap).length);
         }
       } catch (_) { /* 未登录时静默 */ }
     } catch (e) { console.warn('仪表盘数据加载失败:', e); }
   }
   setInterval(refreshDashboard, 30000);
 
+  // ---------- 学情右侧栏：近 7 天进步曲线 ----------
+  let progressChart = null;
+
+  /** 拉取近 7 天答题趋势并渲染折线（无数据时显示空状态引导） */
+  async function refreshProgressCurve() {
+    const box = document.getElementById('progress-chart');
+    const empty = document.getElementById('progress-empty');
+    const sub = document.getElementById('progress-sub');
+    if (!box || typeof echarts === 'undefined') return;
+    let trend = [];
+    try {
+      const d = await fetch(API + '/bkt/history/' + encodeURIComponent(currentStudentId()) + '?days=7').then(r => r.json());
+      trend = d.trend || [];
+    } catch (e) { trend = []; }
+
+    const hasData = trend.some(t => t.answered > 0);
+    box.style.display = hasData ? '' : 'none';
+    if (empty) empty.classList.toggle('hidden', hasData);
+    if (!hasData) {
+      if (sub) sub.textContent = '暂无数据';
+      return;
+    }
+    if (!progressChart) progressChart = echarts.init(box);
+    const labels = trend.map(t => t.label);
+    const mastery = trend.map(t => Math.round((t.mastery || 0) * 100));
+    const answered = trend.map(t => t.answered || 0);
+    progressChart.setOption({
+      backgroundColor: 'transparent',
+      grid: { left: 34, right: 10, top: 18, bottom: 22 },
+      tooltip: { trigger: 'axis', backgroundColor: 'rgba(15,23,42,0.95)', borderColor: 'rgba(99,102,241,0.4)', textStyle: { color: '#e2e8f0', fontSize: 11 } },
+      xAxis: { type: 'category', data: labels, axisLine: { lineStyle: { color: '#334155' } }, axisLabel: { color: '#64748b', fontSize: 10 } },
+      yAxis: { type: 'value', max: 100, min: 0, splitLine: { lineStyle: { color: 'rgba(51,65,85,0.5)' } }, axisLabel: { color: '#475569', fontSize: 10, formatter: '{value}%' } },
+      series: [
+        { name: '平均掌握度', type: 'line', smooth: true, data: mastery, symbolSize: 5,
+          lineStyle: { width: 2, color: '#818cf8' }, itemStyle: { color: '#818cf8' },
+          areaStyle: { color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+            { offset: 0, color: 'rgba(129,140,248,0.35)' }, { offset: 1, color: 'rgba(129,140,248,0)' }]) } },
+        { name: '答题数', type: 'bar', data: answered, barWidth: 8, itemStyle: { color: 'rgba(52,211,153,0.55)', borderRadius: [3, 3, 0, 0] } },
+      ],
+    });
+    progressChart.resize();
+    const total = trend.reduce((s, t) => s + (t.answered || 0), 0);
+    if (sub) sub.textContent = `近 7 天 ${total} 题`;
+  }
+
 // 导出 + 供 HTML 内联 onclick 使用
-export { loadTeacher, refreshDashboard, generateReport, toggleStudentRow, toggleReportExpand };
-Object.assign(window, { loadTeacher, refreshDashboard, generateReport, toggleStudentRow, toggleReportExpand });
+export { loadTeacher, refreshDashboard, generateReport, toggleStudentRow, toggleReportExpand, refreshProgressCurve };
+Object.assign(window, { loadTeacher, refreshDashboard, generateReport, toggleStudentRow, toggleReportExpand, refreshProgressCurve });
