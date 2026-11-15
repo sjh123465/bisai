@@ -139,6 +139,7 @@ class GraphRAGService:
 
 _graphrag = None
 
+
 def get_graphrag() -> GraphRAGService:
     global _graphrag
     if _graphrag is None:

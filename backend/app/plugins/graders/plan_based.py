@@ -167,7 +167,10 @@ def build_default_plan(question: Question) -> GradingPlan:
             kind="tests_pass", auto=True,
         ))
     criteria.extend([
-        GradingCriterion(id="no_infinite_loop", description="未检测到明显死循环", weight=0.1, kind="no_infinite_loop", auto=True),
+        GradingCriterion(
+            id="no_infinite_loop", description="未检测到明显死循环",
+            weight=0.1, kind="no_infinite_loop", auto=True,
+        ),
         GradingCriterion(id="pep8", description="基础代码风格", weight=0.1, kind="pep8", auto=True),
     ])
     return GradingPlan(
@@ -389,14 +392,21 @@ class PlanBasedGrader:
 
     # ---------- 主观题（预留） ----------
     def _grade_text(self, q: Question, plan: GradingPlan, answer: str) -> GradeResult:
-        criteria = plan.criteria or [GradingCriterion(id="manual", description="主观题需人工或后续 LLM 插件复核", kind="manual", auto=False)]
+        criteria = plan.criteria or [
+            GradingCriterion(
+                id="manual", description="主观题需人工或后续 LLM 插件复核",
+                kind="manual", auto=False,
+            )
+        ]
         results = []
         total_weight = 0.0
         weighted = 0.0
         for c in criteria:
             ratio, note = _eval_code_criterion(c, answer or "", analyze_code(""), None)
             weight = max(0.0, float(c.weight or 0))
-            results.append(GradeCriterionResult(id=c.id, description=c.description, weight=weight, score=ratio, note=note))
+            results.append(GradeCriterionResult(
+                id=c.id, description=c.description, weight=weight, score=ratio, note=note,
+            ))
             if c.auto:
                 weighted += ratio * weight
                 total_weight += weight

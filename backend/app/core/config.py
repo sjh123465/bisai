@@ -24,6 +24,9 @@ class Settings(BaseSettings):
     chroma_dir: str = "./data/chroma"
     graph_file: str = "./data/knowledge_graph.json"
 
+    # Embedding 模型下载源（国内默认走镜像，官方源可设为 https://huggingface.co）
+    hf_endpoint: str = "https://hf-mirror.com"
+
     # Server
     port: int = 8000
     host: str = "0.0.0.0"

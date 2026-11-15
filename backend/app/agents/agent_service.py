@@ -70,7 +70,6 @@ def _format_profile_context(profile: Optional[dict]) -> str:
     return "\n".join(lines)
 
 
-
 # ---------- 工具定义（Function Calling 格式） ----------
 TOOLS = [
     {

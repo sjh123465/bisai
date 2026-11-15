@@ -11,14 +11,15 @@ import math
 import os
 from typing import Optional
 
-# 国内 HuggingFace 镜像，确保模型可下载
-os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
-
 import httpx
+from app.core.config import get_settings
 from app.core.llm_config import LLMConfig
 from app.core.logger import get_logger
 
 logger = get_logger("embedding")
+
+# 国内 HuggingFace 镜像，确保模型可下载（可由 .env 的 HF_ENDPOINT 覆盖）
+os.environ.setdefault("HF_ENDPOINT", get_settings().hf_endpoint)
 
 # bge-small 本地模型：512 维，中文优化，无 Key 可用
 _LOCAL_MODEL_NAME = "BAAI/bge-small-zh-v1.5"

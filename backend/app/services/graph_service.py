@@ -27,8 +27,12 @@ class KnowledgeGraph:
                 for node in data.get("nodes", []):
                     self.graph.add_node(node["id"], **{k: v for k, v in node.items() if k != "id"})
                 for edge in data.get("edges", []):
-                    self.graph.add_edge(edge["source"], edge["target"], **{k: v for k, v in edge.items() if k not in ("source", "target")})
-                logger.info(f"📂 图谱加载完成: {self.graph.number_of_nodes()} 节点, {self.graph.number_of_edges()} 边")
+                    attrs = {k: v for k, v in edge.items() if k not in ("source", "target")}
+                    self.graph.add_edge(edge["source"], edge["target"], **attrs)
+                logger.info(
+                    f"📂 图谱加载完成: {self.graph.number_of_nodes()} 节点, "
+                    f"{self.graph.number_of_edges()} 边"
+                )
             except Exception as e:
                 logger.error(f"图谱加载失败: {e}")
                 self.graph = nx.DiGraph()
@@ -124,6 +128,7 @@ class KnowledgeGraph:
 
 
 _graph = None
+
 
 def get_graph() -> KnowledgeGraph:
     global _graph

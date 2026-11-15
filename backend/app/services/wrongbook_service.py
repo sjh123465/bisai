@@ -133,6 +133,7 @@ class WrongBookService:
 
 _wb = None
 
+
 def get_wrongbook() -> WrongBookService:
     global _wb
     if _wb is None:

@@ -20,8 +20,10 @@ os.environ["RATE_LIMIT_PER_MIN"] = "100000"   # API 测试不受限流干扰
 os.environ["SANDBOX_MODE"] = "subprocess"      # 测试环境无 Docker 依赖
 os.environ["AUTH_SECRET"] = "test-secret"
 
-import pytest
-from fastapi.testclient import TestClient
+# 说明：此处必须在设置环境变量之后再导入 app 相关模块，
+# 否则配置会在正确的数据目录生效前被缓存。
+import pytest  # noqa: E402
+from fastapi.testclient import TestClient  # noqa: E402
 
 
 @pytest.fixture(scope="session")

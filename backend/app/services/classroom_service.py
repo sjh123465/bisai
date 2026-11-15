@@ -558,7 +558,10 @@ class ClassroomStore:
         payload.pop("details", None)
         return payload
 
-    def override_submission(self, assignment_id: str, student_id: str, teacher_id: str, score: float, feedback: str = "") -> dict:
+    def override_submission(
+        self, assignment_id: str, student_id: str,
+        teacher_id: str, score: float, feedback: str = "",
+    ) -> dict:
         with self._lock:
             a = self._data.assignments.get(assignment_id)
             if not a:

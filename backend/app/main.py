@@ -9,7 +9,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.core.config import get_settings
 from app.core.logger import get_logger
-from app.core.metrics import metrics
+from app.core.metrics import MetricsMiddleware, metrics
 from app.core.ratelimit import RateLimitMiddleware
 from app.routers import routers_list
 
@@ -52,7 +52,6 @@ app.add_middleware(
 
 # L4 安全层：限流 + 监控（顺序：CORS 最外层 → 限流 → 监控）
 app.add_middleware(RateLimitMiddleware)
-from app.core.metrics import MetricsMiddleware
 app.add_middleware(MetricsMiddleware)
 
 # 注册路由

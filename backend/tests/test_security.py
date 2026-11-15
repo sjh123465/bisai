@@ -32,7 +32,10 @@ class TestToken:
         assert decode_token(tok + "x") is None
 
     def test_expired(self):
-        import base64, hmac, hashlib, json
+        import base64
+        import hashlib
+        import hmac
+        import json
         from app.core.security import _secret
         raw = base64.urlsafe_b64encode(
             json.dumps({"u": "bob", "r": "teacher", "exp": int(time.time()) - 10}).encode()

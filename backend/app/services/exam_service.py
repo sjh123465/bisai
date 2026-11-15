@@ -53,17 +53,42 @@ QUESTION_PROMPT = """你是资深计算机出题专家。请严格按照给定�
 输出必须是严格 JSON（不要任何多余文字、不要 markdown 代码块），字段如下：
 
 选择题：
-{{"type":"choice","question":"题干","options":["A. ...","B. ...","C. ...","D. ..."],"answer":"B","explanation":"为什么选B","grading_plan":{{"version":1,"method":"objective","answer_key":"B","accepted_answers":["B","B. ..."],"pass_threshold":0.6,"criteria":[{{"id":"correctness","description":"答案是否匹配标准答案","weight":1.0,"kind":"answer","params":{{}},"auto":true}}]}}}}
+{{"type":"choice","question":"题干",
+  "options":["A. ...","B. ...","C. ...","D. ..."],
+  "answer":"B","explanation":"为什么选B",
+  "grading_plan":{{"version":1,"method":"objective","answer_key":"B",
+    "accepted_answers":["B","B. ..."],"pass_threshold":0.6,
+    "criteria":[{{"id":"correctness","description":"答案是否匹配标准答案",
+      "weight":1.0,"kind":"answer","params":{{}},"auto":true}}]}}}}
 
 判断题：
-{{"type":"judge","question":"题干","answer":true,"explanation":"...","grading_plan":{{"version":1,"method":"objective","answer_key":true,"accepted_answers":["正确","true"],"pass_threshold":0.6,"criteria":[{{"id":"correctness","description":"答案是否匹配标准答案","weight":1.0,"kind":"answer","params":{{}},"auto":true}}]}}}}
+{{"type":"judge","question":"题干","answer":true,"explanation":"...",
+  "grading_plan":{{"version":1,"method":"objective","answer_key":true,
+    "accepted_answers":["正确","true"],"pass_threshold":0.6,
+    "criteria":[{{"id":"correctness","description":"答案是否匹配标准答案",
+      "weight":1.0,"kind":"answer","params":{{}},"auto":true}}]}}}}
 
 编程题（仅当题型要求为编程题时）：
-{{"type":"code","question":"题目描述","function_name":"solve","input_desc":"输入格式说明","output_desc":"输出格式说明","test_cases":[{{"input":"1 2 3","expected":"[1, 2, 3]"}},{{"input":"3 1 2","expected":"[1, 2, 3]"}}],"hint":"解题思路提示","complexity":"预期复杂度","grading_plan":{{"version":1,"method":"test_cases","answer_key":null,"accepted_answers":[],"pass_threshold":0.6,"criteria":[{{"id":"tests_pass","description":"通过测试用例的比例","weight":0.8,"kind":"tests_pass","params":{{}},"auto":true}},{{"id":"no_infinite_loop","description":"未检测到明显死循环","weight":0.1,"kind":"no_infinite_loop","params":{{}},"auto":true}},{{"id":"pep8","description":"基础代码风格","weight":0.1,"kind":"pep8","params":{{}},"auto":true}}]}}}}}}
+{{"type":"code","question":"题目描述","function_name":"solve",
+  "input_desc":"输入格式说明","output_desc":"输出格式说明",
+  "test_cases":[{{"input":"1 2 3","expected":"[1, 2, 3]"}},
+                {{"input":"3 1 2","expected":"[1, 2, 3]"}}],
+  "hint":"解题思路提示","complexity":"预期复杂度",
+  "grading_plan":{{"version":1,"method":"test_cases","answer_key":null,
+    "accepted_answers":[],"pass_threshold":0.6,
+    "criteria":[
+      {{"id":"tests_pass","description":"通过测试用例的比例",
+        "weight":0.8,"kind":"tests_pass","params":{{}},"auto":true}},
+      {{"id":"no_infinite_loop","description":"未检测到明显死循环",
+        "weight":0.1,"kind":"no_infinite_loop","params":{{}},"auto":true}},
+      {{"id":"pep8","description":"基础代码风格",
+        "weight":0.1,"kind":"pep8","params":{{}},"auto":true}}
+    ]}}}}
 
 判题方案约束：
 1. grading_plan 必须可被确定性执行，不能依赖 LLM 二次判断；
-2. 可用 kind：answer、tests_pass、no_infinite_loop、max_loop_depth、has_recursion、required_keywords、forbidden_keywords、pep8、manual；
+2. 可用 kind：answer、tests_pass、no_infinite_loop、max_loop_depth、has_recursion、
+   required_keywords、forbidden_keywords、pep8、manual；
 3. 编程题应包含 tests_pass 规则，并给测试用例覆盖边界；
 4. 选择题的 accepted_answers 要同时覆盖选项字母和完整选项文本；
 5. 题目难度必须严格符合上方的难度要求；
@@ -143,8 +168,13 @@ class ExamService:
                 resp = await self.llm.chat(messages, temperature=1.0)
                 raw_text = resp["choices"][0]["message"]["content"]
                 raw = _extract_json(raw_text)
-                question = _normalize_question(raw, concept_name, node["id"] if node else concept, difficulty)
-                logger.info(f"📝 出题: {concept_name} / {question.type} / plan={question.grading_plan.method} / 角度={angle_keys}")
+                question = _normalize_question(
+                    raw, concept_name, node["id"] if node else concept, difficulty
+                )
+                logger.info(
+                    f"📝 出题: {concept_name} / {question.type} / "
+                    f"plan={question.grading_plan.method} / 角度={angle_keys}"
+                )
                 result = question.model_dump()
                 # 把本次使用的角度指纹返回给前端轮换；不参与判分，也不含答案以外的额外信息。
                 result["variation"] = angle_keys
@@ -155,8 +185,13 @@ class ExamService:
         logger.error(f"出题失败: {last_error}")
         return {"error": f"出题失败: {last_error}"}
 
-    async def generate_paper(self, concepts: list[str] = None, count: int = 5,
-                              qtypes: list[str] = None, difficulty: str = "medium") -> dict:
+    async def generate_paper(
+        self,
+        concepts: list[str] = None,
+        count: int = 5,
+        qtypes: list[str] = None,
+        difficulty: str = "medium",
+    ) -> dict:
         """生成一份试卷（多道题）。"""
         if not concepts:
             all_nodes = self.graph.all_nodes()

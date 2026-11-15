@@ -88,6 +88,7 @@ class VectorStore:
 
 _vector = None
 
+
 def get_vector() -> VectorStore:
     global _vector
     if _vector is None:

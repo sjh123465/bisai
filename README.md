@@ -30,7 +30,9 @@
 ## 核心能力
 
 - **Agent 多轮工具调度**：`search_knowledge`（知识问答）/ `analyze_code_ast`（代码分析）/ `execute_code`（沙箱运行）/ `get_learning_path`（学情推荐）/ `generate_practice_questions`（出题练习），最多 3 轮规划 → 调工具 → 再规划，SSE 实时展示思考阶段。
-- **GraphRAG**：62 节点 / 69 条有效关系 + ChromaDB 本地哈希向量检索；图谱提供结构关系，向量提供教材片段。
+- **GraphRAG**：86 节点 / 93 条有效关系（数据结构、算法、操作系统、计算机网络、数据库）+ ChromaDB 向量检索，向量由 **bge-small-zh-v1.5**（512 维真实语义 Embedding）生成；图谱提供结构关系，向量提供教材片段。
+- **Reranker 重排序**：向量粗召回 Top-K 后二次重排——规则重排（图谱关联加权 + 余弦相似度）；若请求携带智谱 Key，自动升级为 **embedding-3（2048 维）** 语义重排。
+- **Agent 错误自恢复**：工具调用失败自动重试一次；仍失败则降级为 LLM 直接推理作答，并在回答前明确提示「工具暂时不可用」，不会直接抛错给用户。
 - **代码分析**：Python AST 检测嵌套循环、递归、死循环、复杂度启发式；pycodestyle 风格检查。
 - **安全执行**：subprocess 沙箱 + 危险模块黑名单 + 超时；可选 Docker 模式（当前镜像未内置 docker CLI，默认 subprocess）。
 - **个人学情**：本地 BKT 掌握度、错题本、今日统计、近 7 天曲线、图谱 hover 联动；可打开「个人学情档案」逐知识点查看掌握度 / 趋势 / 来源 / 错题，并调用自己的 LLM 生成整体或单知识点分析；对话与最近一份 AI 分析也会在本地保存，刷新后可恢复；支持导出 / 导入 / 清空。
@@ -57,7 +59,7 @@
 │  ├─ Agent（工具调度 + 本地学情摘要，不持久化）          │
 │  ├─ 出题：LLM 生成题目 + grading_plan                 │
 │  ├─ 判题：PlanBasedGrader（不调用 LLM）                │
-│  ├─ GraphRAG：NetworkX + ChromaDB（本地哈希 384 维）   │
+│  ├─ GraphRAG：NetworkX + Chroma + Reranker（512 维）    │
 │  ├─ AST / pycodestyle / subprocess 沙箱               │
 │  └─ 班级域：classroom.json                             │
 └──────────────┬──────────────────────────────────────┘
@@ -88,9 +90,11 @@
 
 ### 环境
 
-- **Python 3.11 / 3.12**（当前依赖在 Python 3.13 上可能装不上）
+- **Python 3.11 / 3.12 / 3.13 / 3.14**（已在 3.14 验证；3.13 上个别 numpy 版本可能无 wheel，建议 3.11/3.12）
 - 无需 Node.js（前端零构建；vendor 已本地化）
 - Docker 可选
+- 磁盘预留 **约 1 GB**：`sentence-transformers` + `torch(CPU)` 约 900 MB，bge-small 模型约 95 MB
+- 网络：首次启动需下载 bge-small 模型；国内建议设置 `HF_ENDPOINT=https://hf-mirror.com`
 
 ### 源码运行
 
@@ -188,7 +192,7 @@ docker compose -f docker/docker-compose.yml up -d --build
 
 ### 🗺️ 图谱
 
-- 62 节点 / 69 边，SVG 力导向
+- 86 节点 / 93 边，SVG 力导向
 - 缩放、拖拽、分类筛选、搜索定位
 - hover 展示本地掌握度、错题次数与前置关系
 
@@ -309,11 +313,22 @@ X-LLM-Model: <可选，覆盖预设模型>
 | `DATA_DIR` | `./data` | 数据目录 |
 | `CHROMA_DIR` | `./data/chroma` | 向量库 |
 | `GRAPH_FILE` | `./data/knowledge_graph.json` | 图谱文件 |
+| `HF_ENDPOINT` | 空（官方源） | 模型下载源；国内建议 `https://hf-mirror.com` |
 | `HOST` / `PORT` | `0.0.0.0` / `8080` | 监听地址 |
 
 ### Embedding
 
-共享知识库固定使用 **384 维本地字符 bigram 哈希向量**，不依赖任何 Key，也不会因用户 provider 不同产生维度漂移。语义召回能力弱于真实 embedding，但保证离线/无 Key 可运行。
+采用三级回退，保证「有 Key 更好、无 Key 也能跑」：
+
+| 层级 | 模型 | 维度 | 触发条件 | 用途 |
+|---|---|---|---|---|
+| 1 | 智谱 `embedding-3` | 2048 | 请求携带智谱 Key | Reranker 阶段精细语义重排 |
+| 2 | `BAAI/bge-small-zh-v1.5`（本地） | 512 | 默认 | 向量库建库 + 粗召回 |
+| 3 | 本地字符 bigram 哈希 | 512 | bge-small 加载失败 | 极端兜底，保证可用 |
+
+- ChromaDB 统一存 **bge-small 512 维**向量，维度稳定，不会因用户 provider 不同而漂移。
+- 首次启动会自动从 HuggingFace 下载 bge-small 模型（约 95 MB）。国内网络建议在 `backend/.env` 中设置 `HF_ENDPOINT=https://hf-mirror.com`（模板已内置）。
+- 更换模型或维度后需删除 `backend/data/chroma/` 让种子脚本重建，否则 Chroma 会因维度不一致报错。
 
 ---
 
@@ -323,8 +338,8 @@ X-LLM-Model: <可选，覆盖预设模型>
 |---|---|
 | `backend/data/users.json` | 用户（PBKDF2 哈希）；首次启动创建演示账号 |
 | `backend/data/classroom.json` | 班级 / 作业 / 提交；原子写 + `.bak`，单进程 RLock |
-| `backend/data/knowledge_graph.json` | 62 节点 / 69 边种子 |
-| `backend/data/chroma/` | 向量库（本地哈希 384 维） |
+| `backend/data/knowledge_graph.json` | 86 节点 / 93 边种子（数据结构 / 算法 / 操作系统 / 网络 / 数据库） |
+| `backend/data/chroma/` | 向量库（bge-small-zh-v1.5，512 维，14 条教材片段） |
 
 浏览器本地：
 
@@ -336,6 +351,19 @@ X-LLM-Model: <可选，覆盖预设模型>
 对话可在输入栏点「清空对话」，分析可在档案分析区点「清除缓存」；「清空本地学情」也会同时清除分析缓存。对话/分析属于本地数据，换设备或清理浏览器数据会丢失。
 
 > 单机 JSON 存储适用于比赛/小规模演示；多 worker 部署需要改用数据库或文件锁。当前请保持单 Uvicorn worker。
+
+---
+
+## 代码规范
+
+| 项 | 约定 |
+|---|---|
+| 后端风格 | PEP 8，行宽上限 120，配置见 [`backend/setup.cfg`](backend/setup.cfg) |
+| 后端检查 | `cd backend && python -m pycodestyle app tests` —— 当前 **0 告警** |
+| 类型与注释 | Python 关键函数带类型标注 + 中文 docstring；前端 ES Modules + JSDoc |
+| 分层结构 | `app/{agents,core,routers,services,plugins}`，路由 / 服务 / 插件职责分离 |
+| 提交信息 | 采用 `feat:` / `fix:` / `docs:` / `refactor:` 前缀，附带中文说明 |
+| 敏感信息 | `.env` 已加入 `.gitignore`，仓库只保留 `.env.example` 模板 |
 
 ---
 
@@ -371,6 +399,30 @@ python -m pytest tests -v
 - JSON 班级存储只支持单进程；并发量上来需迁移 SQLite/PostgreSQL。
 - 目前只支持 DeepSeek / 智谱两个 provider 预设；没有本地 Ollama 直连。
 - 个人练习/作业接口的防滥用仍需根据部署场景继续加强。
+
+---
+
+## 团队信息
+
+> 以下为占位内容，提交前请替换为真实信息。
+
+| 项目 | 内容 |
+|---|---|
+| **队伍名称** | `<!-- 队伍名称 -->` |
+| **参赛赛项** | 传智杯 · `<!-- 参赛组别/赛道 -->` |
+| **所属院校** | `<!-- 学校 / 学院 -->` |
+| **指导教师** | `<!-- 指导教师姓名 -->` |
+| **队长** | `<!-- 姓名 -->` |
+| **队员** | `<!-- 姓名 -->`、`<!-- 姓名 -->` |
+| **联系方式** | `<!-- 邮箱 / 手机（可选） -->` |
+
+### 成员分工
+
+| 成员 | 负责模块 |
+|---|---|
+| `<!-- 姓名 -->` | `<!-- 例：后端 Agent / GraphRAG / 判题插件 -->` |
+| `<!-- 姓名 -->` | `<!-- 例：前端 ES Modules / 交互设计 -->` |
+| `<!-- 姓名 -->` | `<!-- 例：知识图谱构建 / 测试与文档 -->` |
 
 ---
 

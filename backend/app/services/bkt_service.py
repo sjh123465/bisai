@@ -178,6 +178,7 @@ class BKTService:
 
 _bkt = None
 
+
 def get_bkt() -> BKTService:
     global _bkt
     if _bkt is None:

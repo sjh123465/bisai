@@ -7,5 +7,6 @@ logging.basicConfig(
     datefmt="%H:%M:%S",
 )
 
+
 def get_logger(name: str) -> logging.Logger:
     return logging.getLogger(name)
