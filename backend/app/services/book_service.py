@@ -35,7 +35,6 @@ logger = get_logger("books")
 
 BOOK_INDEX_VERSION = "book-v1"
 INDEX_FILE = "index.json"
-MAX_CHUNKS_PER_BOOK = 5000
 
 
 class BookError(Exception):
@@ -73,7 +72,23 @@ class BookService:
         self._lock = threading.RLock()
         self._ingesting: set[str] = set()
         self._books: dict[str, dict] = self._load_index()
+        self._recover_interrupted()
         self.client = chromadb.PersistentClient(path=self.cfg.chroma_dir)
+
+    def _recover_interrupted(self):
+        """单进程 JSON 存储：重启后把中断的处理任务标记失败，允许重建索引。"""
+        with self._lock:
+            changed = False
+            for rec in self._books.values():
+                if rec.get("status") in ("pending", "parsing", "embedding"):
+                    rec["status"] = "failed"
+                    rec["progress"] = 0
+                    rec["error"] = "服务重启导致处理中断，请点击「重建索引」重新处理"
+                    rec["updated_at"] = _now()
+                    changed = True
+            if changed:
+                self._save_index_locked()
+                logger.warning("检测到未完成的书架任务，已标记为失败，可重建索引")
 
     # ---------------- 索引持久化 ----------------
     def _load_index(self) -> dict[str, dict]:
@@ -162,13 +177,22 @@ class BookService:
         return sorted({label for label in SUPPORTED_EXTENSIONS.values()})
 
     # ---------------- 上传 ----------------
-    def create_book(self, user: str, filename: str, data: bytes) -> dict:
+    def create_book(
+        self,
+        user: str,
+        filename: str,
+        temp_path: str | Path,
+        size: int,
+        sha256: str = "",
+    ) -> dict:
+        """登记已落盘的临时上传文件；成功后把它移动到书籍目录。"""
         if not user:
             raise BookPermissionError("请先登录后再上传书籍")
         max_bytes = int(self.cfg.book_max_mb) * 1024 * 1024
-        if not data:
+        size = int(size or 0)
+        if size <= 0:
             raise BookValidationError("文件为空")
-        if len(data) > max_bytes:
+        if size > max_bytes:
             raise BookTooLargeError(f"文件超过 {self.cfg.book_max_mb}MB 上限")
 
         safe_name = os.path.basename(str(filename or "")).replace("\x00", "").strip()[:160]
@@ -182,10 +206,19 @@ class BookService:
                 f"暂不支持 {ext or '该'} 格式，支持: " + "、".join(SUPPORTED_EXTENSIONS)
             )
 
-        sha = hashlib.sha256(data).hexdigest()
+        source = Path(temp_path)
+        if not source.is_file():
+            raise BookValidationError("上传文件已失效，请重试")
+        if not sha256:
+            digest = hashlib.sha256()
+            with open(source, "rb") as f:
+                for block in iter(lambda: f.read(1024 * 1024), b""):
+                    digest.update(block)
+            sha256 = digest.hexdigest()
+
         with self._lock:
             for rec in self._books.values():
-                if rec.get("user") == user and rec.get("sha256") == sha and rec.get("status") != "failed":
+                if rec.get("user") == user and rec.get("sha256") == sha256 and rec.get("status") != "failed":
                     raise BookDuplicateError(self._public(rec))
 
         book_id = uuid.uuid4().hex[:16]
@@ -197,8 +230,8 @@ class BookService:
             "title": title,
             "filename": safe_name,
             "format": ext,
-            "size": len(data),
-            "sha256": sha,
+            "size": size,
+            "sha256": sha256,
             "status": "pending",
             "progress": 0,
             "chunk_count": 0,
@@ -208,15 +241,29 @@ class BookService:
         }
         book_dir = self.books_dir / self.user_key(user) / book_id
         book_dir.mkdir(parents=True, exist_ok=True)
-        (book_dir / f"original{ext}").write_bytes(data)
+        os.replace(source, book_dir / f"original{ext}")
 
         with self._lock:
             self._books[book_id] = record
             self._save_index_locked()
-        logger.info(f"📚 新书上传: {user} / {title} ({len(data)/1024/1024:.1f}MB, {ext})")
+        logger.info(f"📚 新书上传: {user} / {title} ({size/1024/1024:.1f}MB, {ext})")
         return self._public(record)
 
     # ---------------- 解析 / 入库 ----------------
+    def _parse_progress_cb(self, book_id: str):
+        """OCR 页级进度 → 解析阶段 5%~19%，只在整数百分比变化时写索引。"""
+        last = -1
+
+        def cb(ratio: float):
+            nonlocal last
+            pct = 5 + int(14 * max(0.0, min(1.0, float(ratio))))
+            if pct == last:
+                return
+            last = pct
+            self._update_record(book_id, progress=pct)
+
+        return cb
+
     async def ingest(self, book_id: str):
         with self._lock:
             rec = self._books.get(book_id)
@@ -232,13 +279,21 @@ class BookService:
         try:
             self._update_record(book_id, status="parsing", progress=5, error="")
             parsed = await asyncio.to_thread(
-                parse_book, self._original_path(record), record["format"], record.get("title", "")
+                parse_book,
+                self._original_path(record),
+                record["format"],
+                record.get("title", ""),
+                ocr_mode=str(self.cfg.book_ocr_mode),
+                ocr_dpi=int(self.cfg.book_ocr_dpi),
+                ocr_max_pages=int(self.cfg.book_ocr_max_pages),
+                progress_cb=self._parse_progress_cb(book_id),
+                ocr_cache_path=self._book_dir(record) / "ocr_pages.json",
             )
             chunks = chunk_blocks(
                 parsed.blocks,
                 chunk_size=int(self.cfg.book_chunk_size),
                 overlap=int(self.cfg.book_chunk_overlap),
-                max_chunks=MAX_CHUNKS_PER_BOOK,
+                max_chunks=max(1, int(self.cfg.book_max_chunks)),
             )
             if not chunks:
                 raise BookParseError("没有可用的文字片段")

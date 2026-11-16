@@ -9,12 +9,14 @@
 from __future__ import annotations
 
 import html.parser
+import json
 import os
 import re
+import threading
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable
+from typing import Callable, Iterable
 from xml.etree import ElementTree as ET
 
 SUPPORTED_EXTENSIONS = {
@@ -98,11 +100,168 @@ def _split_paragraphs(text: str) -> list[str]:
     return out
 
 
-def _parse_pdf(path: Path, fallback_title: str) -> ParsedBook:
+# 单页可提取文字少于该值时视为图片页，auto 模式会触发 OCR
+OCR_PAGE_TEXT_THRESHOLD = 20
+_OCR_ENGINE = None
+_OCR_ENGINE_LOCK = threading.Lock()
+
+
+def _get_ocr_engine():
+    """懒加载 RapidOCR；首次调用会初始化本地 ONNX 模型。"""
+    global _OCR_ENGINE
+    if _OCR_ENGINE is not None:
+        return _OCR_ENGINE
+    with _OCR_ENGINE_LOCK:
+        if _OCR_ENGINE is None:
+            try:
+                from rapidocr_onnxruntime import RapidOCR
+            except Exception as e:  # pragma: no cover - 依赖缺失时才触发
+                raise BookParseError(
+                    "扫描版 PDF 需要本地 OCR 组件，请先执行 pip install -r requirements.txt"
+                ) from e
+            # 限制检测长边 + 关闭方向分类，显著降低扫描书 OCR 耗时；
+            # det/rec_model_path 传空是 rapidocr 1.2.x 覆盖参数时的必需占位。
+            _OCR_ENGINE = RapidOCR(
+                use_angle_cls=False,
+                det_model_path="",
+                det_limit_side_len=1280,
+                det_limit_type="max",
+                rec_model_path="",
+            )
+    return _OCR_ENGINE
+
+
+def _ocr_result_text(result) -> str:
+    """把 RapidOCR 输出按阅读顺序（先上后下、先左后右）拼成文本。"""
+    rows = []
+    for item in result or []:
+        try:
+            box, text, score = item[0], item[1], float(item[2])
+        except (TypeError, ValueError, IndexError):
+            continue
+        if not text or score < 0.3:
+            continue
+        try:
+            left = min(float(point[0]) for point in box)
+            top = min(float(point[1]) for point in box)
+        except (TypeError, ValueError, IndexError):
+            continue
+        rows.append((top, left, str(text)))
+    rows.sort(key=lambda row: (row[0], row[1]))
+    return "\n".join(text for _, _, text in rows)
+
+
+OCR_CACHE_VERSION = 1
+
+
+def _load_ocr_cache(path: Path, dpi: int) -> dict[int, str]:
+    """读取页级 OCR 缓存；版本或 DPI 变化时自动失效。"""
+    try:
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+        if int(data.get("version", 0)) != OCR_CACHE_VERSION:
+            return {}
+        if int(data.get("dpi", 0)) != int(dpi):
+            return {}
+        pages = data.get("pages") or {}
+        return {int(k): str(v) for k, v in pages.items() if str(v).strip()}
+    except Exception:
+        return {}
+
+
+def _save_ocr_cache(path: Path, dpi: int, pages: dict[int, str]) -> None:
+    try:
+        path = Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "version": OCR_CACHE_VERSION,
+            "dpi": int(dpi),
+            "pages": {str(k): v for k, v in sorted(pages.items())},
+        }
+        tmp = path.with_suffix(".json.tmp")
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=False)
+        os.replace(tmp, path)
+    except Exception:
+        pass  # 缓存写失败不影响主流程
+
+
+def _ocr_pdf_pages(
+    path: Path,
+    page_numbers: list[int],
+    dpi: int,
+    progress_cb: Callable[[float], None] | None = None,
+    cache_path: Path | None = None,
+) -> dict[int, str]:
+    """渲染指定页并本地 OCR（可复用页级缓存），返回 {页码: 识别文本}。"""
+    try:
+        import numpy as np
+        import pypdfium2 as pdfium
+    except Exception as e:  # pragma: no cover - 依赖缺失时才触发
+        raise BookParseError(
+            "扫描版 PDF 需要本地渲染组件，请先执行 pip install -r requirements.txt"
+        ) from e
+
+    wanted = list(dict.fromkeys(int(n) for n in page_numbers))
+    texts: dict[int, str] = {}
+    if cache_path:
+        cached = _load_ocr_cache(Path(cache_path), int(dpi))
+        texts.update({n: cached[n] for n in wanted if n in cached})
+    pending = [n for n in wanted if n not in texts]
+    total = len(wanted)
+    done = total - len(pending)
+
+    def report():
+        if progress_cb:
+            try:
+                progress_cb(min(1.0, done / max(total, 1)))
+            except Exception:
+                pass
+
+    report()
+    engine = _get_ocr_engine()
+    scale = max(1.0, float(dpi) / 72.0)
+    with pdfium.PdfDocument(str(path)) as doc:
+        for idx, page_no in enumerate(pending):
+            if page_no < 1 or page_no > len(doc):
+                continue
+            page = doc[page_no - 1]
+            bitmap = page.render(scale=scale)
+            try:
+                image = bitmap.to_pil().convert("RGB")
+                with _OCR_ENGINE_LOCK:
+                    result, _ = engine(np.asarray(image)[:, :, ::-1])
+            finally:
+                bitmap.close()
+            text = normalize_text(_ocr_result_text(result))
+            if text:
+                texts[page_no] = text
+            done += 1
+            if cache_path and (idx + 1) % 5 == 0:
+                _save_ocr_cache(Path(cache_path), int(dpi), texts)
+            report()
+    if cache_path:
+        _save_ocr_cache(Path(cache_path), int(dpi), texts)
+    return {n: texts[n] for n in wanted if n in texts}
+
+
+def _parse_pdf(
+    path: Path,
+    fallback_title: str,
+    *,
+    ocr_mode: str = "auto",
+    ocr_dpi: int = 150,
+    ocr_max_pages: int = 1000,
+    progress_cb: Callable[[float], None] | None = None,
+    ocr_cache_path: str | Path | None = None,
+) -> ParsedBook:
     try:
         from pypdf import PdfReader
     except Exception as e:  # pragma: no cover - 依赖缺失时才触发
         raise BookParseError(f"PDF 解析库未安装: {e}") from e
+
+    mode = str(ocr_mode or "auto").lower()
+    if mode not in ("auto", "off", "force"):
+        mode = "auto"
 
     try:
         reader = PdfReader(str(path))
@@ -117,10 +276,36 @@ def _parse_pdf(path: Path, fallback_title: str) -> ParsedBook:
         if meta_title:
             title = meta_title
 
+        page_texts: dict[int, str] = {}
+        for page_no, page in enumerate(reader.pages, 1):
+            page_texts[page_no] = normalize_text(page.extract_text() or "")
+        pages_n = len(page_texts)
+
+        # 扫描版 / 图片页：auto 只补没有文字的页，force 全页重识别
+        if mode != "off" and pages_n:
+            if mode == "force":
+                ocr_pages = list(range(1, pages_n + 1))
+            else:
+                ocr_pages = [n for n, text in page_texts.items() if len(text) < OCR_PAGE_TEXT_THRESHOLD]
+            if ocr_pages:
+                limit = max(0, int(ocr_max_pages))
+                if limit and len(ocr_pages) > limit:
+                    raise BookParseError(
+                        f"需要 OCR 的页数（{len(ocr_pages)}）超过 {limit} 页上限，"
+                        "请拆分 PDF 后上传，或调大 BOOK_OCR_MAX_PAGES"
+                    )
+                page_texts.update(_ocr_pdf_pages(
+                    path,
+                    ocr_pages,
+                    int(ocr_dpi),
+                    progress_cb,
+                    cache_path=Path(ocr_cache_path) if ocr_cache_path else None,
+                ))
+
         blocks: list[TextBlock] = []
         current_chapter = ""
-        for page_no, page in enumerate(reader.pages, 1):
-            text = normalize_text(page.extract_text() or "")
+        for page_no in range(1, pages_n + 1):
+            text = page_texts.get(page_no, "")
             if not text:
                 continue
             detected = _detect_chapter(text)
@@ -134,10 +319,13 @@ def _parse_pdf(path: Path, fallback_title: str) -> ParsedBook:
         raise BookParseError(f"PDF 解析失败: {e}") from e
 
     total = sum(len(b.text) for b in blocks)
-    pages_n = len(reader.pages)
     # 扫描版 PDF 常见情况：整本几乎没有文字，或每页只有页眉/页脚几个字
     if total < 10 or (pages_n > 3 and total / pages_n < 5):
-        raise BookParseError("PDF 没有可提取的文字（可能是扫描版），请上传文字版 PDF 或先 OCR")
+        if mode == "off":
+            raise BookParseError(
+                "PDF 没有可提取的文字（可能是扫描版），可把 BOOK_OCR_MODE 设为 auto 开启本地 OCR"
+            )
+        raise BookParseError("PDF 没有可提取的文字，本地 OCR 也未能识别（扫描件可能过于模糊）")
     return ParsedBook(title=title, blocks=blocks, format="pdf")
 
 
@@ -416,8 +604,22 @@ def _parse_epub(path: Path, fallback_title: str) -> ParsedBook:
         return ParsedBook(title=title, blocks=blocks, format="epub")
 
 
-def parse_book(path: str | Path, ext: str, fallback_title: str = "") -> ParsedBook:
-    """按扩展名解析电子书；支持格式由 SUPPORTED_EXTENSIONS 定义。"""
+def parse_book(
+    path: str | Path,
+    ext: str,
+    fallback_title: str = "",
+    *,
+    ocr_mode: str = "auto",
+    ocr_dpi: int = 150,
+    ocr_max_pages: int = 1000,
+    progress_cb: Callable[[float], None] | None = None,
+    ocr_cache_path: str | Path | None = None,
+) -> ParsedBook:
+    """按扩展名解析电子书；支持格式由 SUPPORTED_EXTENSIONS 定义。
+
+    PDF 的 ocr_mode：auto 只识别缺少文字的页，off 关闭，force 全页 OCR。
+    ocr_cache_path 指向页级 OCR 缓存，重建索引时可跳过已识别页。
+    """
     path = Path(path)
     ext = ext.lower()
     if not ext.startswith("."):
@@ -426,7 +628,15 @@ def parse_book(path: str | Path, ext: str, fallback_title: str = "") -> ParsedBo
         raise BookParseError(f"暂不支持 {ext} 格式，支持: {', '.join(sorted(SUPPORTED_EXTENSIONS))}")
     fallback_title = fallback_title or path.stem
     if ext == ".pdf":
-        return _parse_pdf(path, fallback_title)
+        return _parse_pdf(
+            path,
+            fallback_title,
+            ocr_mode=ocr_mode,
+            ocr_dpi=ocr_dpi,
+            ocr_max_pages=ocr_max_pages,
+            progress_cb=progress_cb,
+            ocr_cache_path=ocr_cache_path,
+        )
     if ext == ".docx":
         return _parse_docx(path, fallback_title)
     if ext == ".txt":
@@ -503,6 +713,8 @@ def chunk_blocks(
             meta = {"chapter": block.chapter or text, "page": block.page, "kind": "text"}
             continue
 
+        if block.page and meta["page"] and block.page != meta["page"]:
+            flush()  # 不跨页合并，保证检索结果的页码准确
         if block.chapter and meta["chapter"] and block.chapter != meta["chapter"] and buf_len >= chunk_size // 2:
             flush()
         if not buf:

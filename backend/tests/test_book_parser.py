@@ -85,8 +85,59 @@ def test_parse_pdf(tmp_path):
 def test_parse_pdf_without_text_raises(tmp_path):
     p = tmp_path / "empty.pdf"
     _write_pdf(p, text="")
-    with pytest.raises(BookParseError):
-        parse_book(p, ".pdf", "空 PDF")
+    with pytest.raises(BookParseError, match="扫描版"):
+        parse_book(p, ".pdf", "空 PDF", ocr_mode="off")
+
+
+def test_parse_scanned_pdf_uses_ocr(tmp_path, monkeypatch):
+    from app.services import book_parser
+
+    p = tmp_path / "scan.pdf"
+    _write_pdf(p, text="")
+    calls = {}
+
+    def fake_ocr(path, page_numbers, dpi, progress_cb=None, cache_path=None):
+        calls["pages"] = list(page_numbers)
+        calls["dpi"] = dpi
+        if progress_cb:
+            progress_cb(1.0)
+        return {1: "第1章 扫描页\n\nOCR 识别出的正文。"}
+
+    monkeypatch.setattr(book_parser, "_ocr_pdf_pages", fake_ocr)
+    book = parse_book(p, ".pdf", "扫描讲义", ocr_mode="auto", ocr_dpi=180)
+    text = "\n".join(b.text for b in book.blocks)
+    assert "OCR 识别出的正文" in text
+    assert calls["pages"] == [1]
+    assert calls["dpi"] == 180
+    assert all(b.page == 1 for b in book.blocks)
+
+
+def test_ocr_page_cache_reuses_recognized_pages(tmp_path, monkeypatch):
+    from PIL import Image
+
+    from app.services import book_parser
+
+    p = tmp_path / "scan.pdf"
+    Image.new("RGB", (400, 600), "white").save(p, "PDF")
+    calls = {"n": 0}
+
+    class FakeEngine:
+        def __call__(self, _image):
+            calls["n"] += 1
+            box = [[0, 0], [20, 0], [20, 10], [0, 10]]
+            return [[box, "缓存正文", 0.99]], None
+
+    monkeypatch.setattr(book_parser, "_get_ocr_engine", lambda: FakeEngine())
+    cache = tmp_path / "ocr_pages.json"
+    first = book_parser._ocr_pdf_pages(p, [1], 150, cache_path=cache)
+    second = book_parser._ocr_pdf_pages(p, [1], 150, cache_path=cache)
+    assert first == second == {1: "缓存正文"}
+    assert calls["n"] == 1
+
+    # DPI 变化后缓存失效，需要重新识别
+    third = book_parser._ocr_pdf_pages(p, [1], 120, cache_path=cache)
+    assert third == {1: "缓存正文"}
+    assert calls["n"] == 2
 
 
 def test_parse_epub(tmp_path):
@@ -115,6 +166,18 @@ def test_parse_epub(tmp_path):
     assert book.title == "EPUB 测试书"
     text = "\n".join(b.text for b in book.blocks)
     assert "红黑树" in text and "平衡因子" in text
+
+
+def test_chunk_blocks_keeps_page_boundaries():
+    from app.services.book_parser import TextBlock
+
+    blocks = [
+        TextBlock("第一页内容。" * 10, page=1),
+        TextBlock("第二页内容。" * 10, page=2),
+    ]
+    chunks = chunk_blocks(blocks, chunk_size=200, overlap=20)
+    assert {c.page for c in chunks} == {1, 2}
+    assert all(not ("第一页" in c.text and "第二页" in c.text) for c in chunks)
 
 
 def test_chunk_blocks_preserves_chapter_and_overlap():

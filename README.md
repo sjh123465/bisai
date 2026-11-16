@@ -31,7 +31,7 @@
 
 - **Agent 多轮工具调度**：`search_knowledge`（知识问答）/ `analyze_code_ast`（代码分析）/ `execute_code`（沙箱运行）/ `get_learning_path`（学情推荐）/ `generate_practice_questions`（出题练习），最多 3 轮规划 → 调工具 → 再规划，SSE 实时展示思考阶段。
 - **GraphRAG**：86 节点 / 93 条有效关系（数据结构、算法、操作系统、计算机网络、数据库）+ ChromaDB 向量检索，向量由 **bge-small-zh-v1.5**（FastEmbed/ONNX，512 维真实语义 Embedding）生成；图谱提供结构关系，向量提供教材片段。
-- **我的书架 / 知识源插件**：用户可上传 **PDF / Word(.docx) / TXT / Markdown / EPUB**，后台自动解析、结构感知切片、本地向量化；与内置课程**组合检索**，也可取消内置课程实现**只用书架**。书籍按用户隔离，检索结果带书名/章节/页码出处。
+- **我的书架 / 知识源插件**：用户可上传 **PDF / Word(.docx) / TXT / Markdown / EPUB**，后台自动解析（**扫描版 PDF 自动本地 OCR**）、结构感知切片、本地向量化；与内置课程**组合检索**，也可取消内置课程实现**只用书架**。书籍按用户隔离，检索结果带书名/章节/页码出处。
 - **Reranker 重排序**：向量粗召回 Top-K 后二次重排——规则重排（图谱关联加权 + 余弦相似度）；若请求携带智谱 Key，自动升级为 **embedding-3（2048 维）** 语义重排。
 - **Agent 错误自恢复**：工具调用失败自动重试一次；仍失败则降级为 LLM 直接推理作答，并在回答前明确提示「工具暂时不可用」，不会直接抛错给用户。
 - **代码分析**：Python AST 检测嵌套循环、递归、死循环、复杂度启发式；pycodestyle 风格检查。
@@ -94,7 +94,7 @@
 - **Python 3.11 / 3.12 / 3.13**（已在 3.13 验证；`chromadb` 需 >=1.5 才有 cp313 轮子，requirements 已适配）
 - 无需 Node.js（前端零构建；vendor 已本地化）
 - Docker 可选
-- 磁盘预留 **约 550 MB**：完整后端 venv 约 464 MB（含 fastembed/onnxruntime/chromadb），bge-small 模型约 91 MB（无需 torch）
+- 磁盘预留 **约 720 MB**：完整后端 venv 约 620 MB（含 fastembed/onnxruntime/chromadb/OCR），bge-small 模型约 91 MB（无需 torch）
 - 网络：首次启动需下载 bge-small 模型；默认走 `HF_ENDPOINT=https://hf-mirror.com` 镜像
 
 ### 源码运行
@@ -144,7 +144,7 @@ cd backend
 python -m pytest tests -v
 ```
 
-当前测试集 **65 项**。`pytest.ini` 已配置 `pythonpath = .`，不要再用裸 `pytest tests`（旧 README 的写法在部分环境会导致 `ModuleNotFoundError: app`）。
+当前测试集 **90 项**。`pytest.ini` 已配置 `pythonpath = .`，不要再用裸 `pytest tests`（旧 README 的写法在部分环境会导致 `ModuleNotFoundError: app`）。
 
 ### Docker（可选）
 
@@ -188,11 +188,11 @@ docker compose -f docker/docker-compose.yml up -d --build
 
 ### 📚 知识库 · 我的书架
 
-- 顶部「知识库」→ 上传 PDF / Word(.docx) / TXT / Markdown / EPUB（单文件默认 ≤ 50MB）
+- 顶部「知识库」→ 上传 PDF / Word(.docx) / TXT / Markdown / EPUB（单文件默认 ≤ 200MB，可用 `BOOK_MAX_MB` 调整；上传分块落盘，不整体占内存）
 - 上传后后台执行：解析 → 章节/页码感知切片 → bge 向量化 → 入库；列表实时显示进度
 - 勾选书籍即可与内置课程一起检索；取消「内置课程库」即切换为**纯书架模式**（知识源替换）
 - 书籍仅上传者可见；回答可标注《书名》章节/页码；删除书籍会同步清理向量
-- 扫描版 PDF 不做 OCR，需先转文字版；旧版 `.doc` 请另存为 `.docx`
+- 扫描版 PDF 自动走**本地 OCR**（RapidOCR + pypdfium2，中英文，无需联网或 API Key；可用 `BOOK_OCR_MODE=off` 关闭）；识别结果按页缓存，重建索引或中断后只补未完成的页；手写体、低清晰度扫描件识别效果有限；单本默认最多 OCR 1000 页（`BOOK_OCR_MAX_PAGES`）；旧版 `.doc` 请另存为 `.docx`
 - 知识源通过 `KnowledgeSource` 协议插件化，新增来源无需改 Agent/对话链路，详见 [PLUGIN_DEV.md](PLUGIN_DEV.md)
 
 ### 📝 练一练
@@ -342,9 +342,13 @@ X-LLM-Model: <可选，覆盖预设模型>
 | `HF_ENDPOINT` | `https://hf-mirror.com` | 模型下载源；可改为 `https://huggingface.co` |
 | `EMBEDDING_CACHE_DIR` | `./data/models` | FastEmbed 模型缓存目录（首次约 91 MB） |
 | `BOOKS_DIR` | `./data/books` | 我的书架原始文件、切片与索引 |
-| `BOOK_MAX_MB` | `50` | 单本电子书大小上限 |
+| `BOOK_MAX_MB` | `200` | 单本电子书大小上限（MB），上传分块落盘 |
+| `BOOK_MAX_CHUNKS` | `20000` | 单本书最大切片数，超出会提示拆分 |
 | `BOOK_CHUNK_SIZE` / `BOOK_CHUNK_OVERLAP` | `500` / `80` | 切片目标字数 / 重叠字数 |
 | `BOOK_EMBED_BATCH` | `32` | 向量化与入库批大小 |
+| `BOOK_OCR_MODE` | `auto` | 扫描版 PDF OCR：`auto` 只识别缺字页 / `off` 关闭 / `force` 全页重识别 |
+| `BOOK_OCR_DPI` | `150` | OCR 页面渲染分辨率，越高越清晰也越慢 |
+| `BOOK_OCR_MAX_PAGES` | `1000` | 单本 PDF 最多 OCR 页数，超出会提示拆分 |
 | `HOST` / `PORT` | `0.0.0.0` / `8080` | 监听地址 |
 
 ### Embedding
@@ -422,6 +426,7 @@ python -m pytest tests -v
 - Agent 对话组装 / 最终回答路径 / 历史窗口
 - 班级作业 / 作业重做 / 作业看板
 - 判题方案 / 题目变体 / 个人学情分析 Prompt
+- 扫描版 PDF 的 OCR 回退（页级识别与文字合并）
 - AST 分析
 - BKT 边界与错题本单次扣分
 - 沙箱执行 / 危险模块 / 超时

@@ -85,6 +85,22 @@ def test_book_rejects_unsupported_format(client, student_headers):
     assert "不支持" in resp.json()["detail"]
 
 
+def test_book_rejects_oversized_upload_and_cleans_temp(client, student_headers, monkeypatch):
+    from app.core.config import get_settings
+    from app.services.book_service import get_book_service
+
+    monkeypatch.setattr(get_settings(), "book_max_mb", 1)
+    resp = _upload(client, student_headers, "超大教材.txt", b"a" * (1024 * 1024 + 1))
+    assert resp.status_code == 413
+    assert "1MB" in resp.json()["detail"]
+
+    # 被拒绝的上传不应该留下书籍记录或临时分块文件
+    books = client.get("/api/books", headers=student_headers).json()["books"]
+    assert all(b["filename"] != "超大教材.txt" for b in books)
+    upload_dir = get_book_service().books_dir / ".uploads"
+    assert not list(upload_dir.glob("*.part"))
+
+
 def test_book_requires_login(client):
     resp = client.get("/api/books")
     assert resp.status_code == 401

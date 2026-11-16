@@ -15,7 +15,8 @@ import {
 
 let _books = [];
 let _pollTimer = null;
-let _maxMb = 50;
+let _maxMb = 200;
+let _ocrMode = 'auto';
 let _formats = ['PDF', 'Word', 'TXT', 'Markdown', 'EPUB'];
 let _modalOpen = false;
 
@@ -171,7 +172,10 @@ function _renderBooks() {
 
 function _updateUploadHint(formats) {
   const hint = document.getElementById('books-upload-hint');
-  if (hint) hint.textContent = `支持 ${formats}，单文件 ≤ ${_maxMb}MB`;
+  if (hint) {
+    const ocr = _ocrMode === 'off' ? '' : '；扫描版 PDF 自动本地 OCR';
+    hint.textContent = `支持 ${formats}，单文件 ≤ ${_maxMb}MB${ocr}`;
+  }
   const btn = document.getElementById('book-upload-btn');
   if (btn) {
     btn.disabled = !_loggedIn();
@@ -221,6 +225,7 @@ export async function refreshBooks({ silent = false } = {}) {
       if (!resp.ok) throw new Error(data.detail || `HTTP ${resp.status}`);
       _books = Array.isArray(data.books) ? data.books : [];
       _maxMb = Number(data.max_mb) || _maxMb;
+      _ocrMode = String(data.ocr?.mode || _ocrMode);
       _formats = Array.isArray(data.supported_formats) && data.supported_formats.length
         ? data.supported_formats : _formats;
       pruneKnowledgeScope(_books.filter(b => b.status === 'ready').map(b => b.id));

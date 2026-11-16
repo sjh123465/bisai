@@ -26,10 +26,14 @@ class Settings(BaseSettings):
 
     # 用户书架（上传的电子书）
     books_dir: str = "./data/books"
-    book_max_mb: int = 50                      # 单个文件上限
+    book_max_mb: int = 200                     # 单个文件上限（MB）
+    book_max_chunks: int = 20000               # 单本书最大切片数
     book_chunk_size: int = 500                 # 目标切片字数
     book_chunk_overlap: int = 80               # 切片重叠字数
     book_embed_batch: int = 32                 # 编码/入库批大小
+    book_ocr_mode: str = "auto"                # PDF 本地 OCR: auto(缺字页) / off / force
+    book_ocr_dpi: int = 150                    # OCR 页面渲染 DPI
+    book_ocr_max_pages: int = 1000             # 单本 PDF 最多 OCR 页数
 
     # Embedding 模型下载源（国内默认走镜像，官方源可设为 https://huggingface.co）
     hf_endpoint: str = "https://hf-mirror.com"

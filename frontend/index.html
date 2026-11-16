@@ -876,12 +876,12 @@
               onclick="document.getElementById('book-file').click()">
         <svg class="cm-icon cm-icon-sm" aria-hidden="true"><use href="#i-upload"></use></svg>上传书籍
       </button>
-      <span id="books-upload-hint" class="footnote">支持 PDF / Word(.docx) / TXT / Markdown / EPUB，单文件 ≤ 50MB</span>
+      <span id="books-upload-hint" class="footnote">支持 PDF / Word(.docx) / TXT / Markdown / EPUB，单文件 ≤ 200MB；扫描版 PDF 自动本地 OCR</span>
     </div>
 
     <p class="footnote books-privacy">
-      检索时只会把命中的片段随当前对话发送给你配置的模型；解析与向量化在本机完成。
-      扫描版 PDF 需要先 OCR。
+      检索时只会把命中的片段随当前对话发送给你配置的模型；解析、OCR 与向量化均在本机完成。
+      可用 BOOK_OCR_MODE=off 关闭扫描版 OCR。
     </p>
   </div>
 </div>
