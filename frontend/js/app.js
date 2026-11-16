@@ -367,6 +367,8 @@ import './features/voice.js';
 
     // 用户消息
     addMessage('user', message, false, _formatChatTime(userTime));
+    // 记录本次提问原文，供渐进式按钮（render.js）生成追问语——比 DOM 回溯可靠
+    window.__cmLastQuery = message;
 
     // AI 消息占位
     const aiWrap = addMessage('assistant', '', true);

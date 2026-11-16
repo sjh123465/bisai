@@ -201,16 +201,25 @@ import { API } from './env.js';
     } else {
       bubble.classList.remove('typing-cursor');
       bubble.innerHTML = renderContent(content);
-      // 仅 AI 消息在流式结束后追加渐进式操作按钮（定义/深入/看代码/出题）
+      // 仅 AI 消息在流式结束后追加渐进式操作按钮（深入了解/看代码/出题）
       if (wrap.classList.contains('assistant') && !wrap.querySelector('.progressive-actions')) {
         const originalQuery = _extractUserQuery(wrap);
-        bubble.insertAdjacentHTML('afterend', renderProgressiveActions(originalQuery));
+        const topicId = _registerTopic(originalQuery);
+        const tpl = document.createElement('template');
+        tpl.innerHTML = renderProgressiveActions(topicId).trim();
+        const actionsEl = tpl.content.firstElementChild;
+        bubble.insertAdjacentElement('afterend', actionsEl);
+        bindProgressiveActions(actionsEl);
       }
     }
   }
 
-  /** 从当前消息向上回溯，提取用户最后一条提问文本，用于渐进式追问 */
+  /** 提取用户提问原文，用于渐进式追问：优先发送时记录的原文，DOM 回溯兜底 */
   function _extractUserQuery(wrap) {
+    // 首选：发送时记录的原文（app.js 在添加用户消息时写入 window.__cmLastQuery）
+    const recorded = typeof window.__cmLastQuery === 'string' ? window.__cmLastQuery.trim() : '';
+    if (recorded) return recorded;
+    // 回退 1：从当前 AI 消息向上回溯最近的用户消息
     let prev = wrap.previousElementSibling;
     while (prev) {
       if (prev.classList.contains('user')) {
@@ -218,21 +227,62 @@ import { API } from './env.js';
       }
       prev = prev.previousElementSibling;
     }
-    return '';
+    // 回退 2：取容器里最后一条用户消息（应对消息被重渲染等异常结构）
+    const users = document.querySelectorAll('#chat-messages .chat-msg-wrap.user .prose-cm');
+    const last = users.length ? users[users.length - 1] : null;
+    return last?.textContent?.trim() || '';
+  }
+
+  // ---------- 渐进式操作按钮 ----------
+  // 话题文本存放在模块级注册表，用 addEventListener 绑定而非内联 onclick：
+  // 内联拼接会被提问里的换行/引号破坏（如练一练「问 AI 详解」发出的多行完整上下文），
+  // 导致按钮点击抛 SyntaxError 而完全无响应；同时避免用户文本进入 HTML 属性。
+  const _progressiveTopics = new Map();
+  let _progressiveSeq = 0;
+
+  function _registerTopic(topic) {
+    const id = 'pt' + (++_progressiveSeq);
+    _progressiveTopics.set(id, String(topic || ''));
+    return id;
+  }
+
+  /** 从原始提问提取短话题：练一练详解上下文取【题目】行，普通提问取首行并截断 */
+  function _shortTopic(raw) {
+    let t = String(raw || '').trim();
+    if (!t) return '这个知识点';
+    const m = t.match(/【题目】\s*([^\n]+)/);
+    t = m ? m[1] : t.split('\n')[0];
+    t = t.replace(/^(问题[:：]|请|帮我)\s*/, '').replace(/\s+/g, ' ').trim();
+    if (t.length > 24) t = t.slice(0, 24) + '…';
+    return t || '这个知识点';
   }
 
   /** 渲染渐进式操作按钮：深入了解 / 看代码 / 出题考考我 */
-  function renderProgressiveActions(topic) {
+  function renderProgressiveActions(topicId) {
     return `
-      <div class="progressive-actions flex flex-wrap gap-2 mt-3">
-        <button class="px-3 py-1.5 text-sm rounded-lg border border-cyan-500/40 bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 transition"
-          onclick="sendQuick('请深入讲解「${topic}」的核心原理和关键细节')">📖 深入了解</button>
-        <button class="px-3 py-1.5 text-sm rounded-lg border border-emerald-500/40 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 transition"
-          onclick="sendQuick('给我一个「${topic}」的 Python 代码示例，并逐行解释')">💻 看代码</button>
-        <button class="px-3 py-1.5 text-sm rounded-lg border border-amber-500/40 bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 transition"
-          onclick="sendQuick('出几道关于「${topic}」的练习题考我')">✏️ 出题考考我</button>
+      <div class="progressive-actions flex flex-wrap gap-2 mt-3" data-topic-id="${topicId}">
+        <button data-qa="deep" class="px-3 py-1.5 text-sm rounded-lg border border-cyan-500/40 bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 transition">📖 深入了解</button>
+        <button data-qa="code" class="px-3 py-1.5 text-sm rounded-lg border border-emerald-500/40 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 transition">💻 看代码</button>
+        <button data-qa="quiz" class="px-3 py-1.5 text-sm rounded-lg border border-amber-500/40 bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 transition">✏️ 出题考考我</button>
       </div>
     `;
+  }
+
+  /** 给渐进式按钮绑定点击事件：按短话题生成追问语并发送到对话 */
+  function bindProgressiveActions(el) {
+    const raw = _progressiveTopics.get(el.dataset.topicId) || '';
+    const short = _shortTopic(raw);
+    const prompts = {
+      deep: `请深入讲解「${short}」的核心原理和关键细节`,
+      code: `给我一个「${short}」的 Python 代码示例，并逐行解释`,
+      quiz: `出几道关于「${short}」的练习题考我`,
+    };
+    el.querySelectorAll('button[data-qa]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const p = prompts[btn.dataset.qa];
+        if (p && window.sendQuick) window.sendQuick(p);
+      });
+    });
   }
 
 // 导出 + 供 HTML 内联 onclick 使用
