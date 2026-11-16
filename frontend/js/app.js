@@ -51,6 +51,8 @@ import './features/voice.js';
     const box = document.getElementById('chat-messages');
     const welcome = document.getElementById('chat-welcome');
     if (!box) return;
+    // 切换账号/重渲染历史时，清掉上一条实时提问，避免历史消息误挂渐进式按钮
+    window.__cmLastQuery = '';
     _removeRenderedChat();
     let messages = loadChatMessages();
     if (!messages.length && greeting) {

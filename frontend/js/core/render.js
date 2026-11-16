@@ -201,9 +201,16 @@ import { API } from './env.js';
     } else {
       bubble.classList.remove('typing-cursor');
       bubble.innerHTML = renderContent(content);
-      // 仅 AI 消息在流式结束后追加渐进式操作按钮（深入了解/看代码/出题）
-      if (wrap.classList.contains('assistant') && !wrap.querySelector('.progressive-actions')) {
-        const originalQuery = _extractUserQuery(wrap);
+      // 仅 AI 消息在流式结束后追加渐进式操作按钮（深入了解/看代码/出题）；
+      // 欢迎语、错误提示没有对应的用户提问，不显示
+      const originalQuery = _extractUserQuery(wrap);
+      const isError = /^(请求失败|回答中断|分析失败|调用失败|工具调度中断)/.test(String(content || '').trim());
+      if (
+        wrap.classList.contains('assistant')
+        && originalQuery
+        && !isError
+        && !wrap.querySelector('.progressive-actions')
+      ) {
         const topicId = _registerTopic(originalQuery);
         const tpl = document.createElement('template');
         tpl.innerHTML = renderProgressiveActions(topicId).trim();
@@ -214,12 +221,9 @@ import { API } from './env.js';
     }
   }
 
-  /** 提取用户提问原文，用于渐进式追问：优先发送时记录的原文，DOM 回溯兜底 */
+  /** 提取用户提问原文，用于渐进式追问：优先沿 DOM 回溯，其次用发送时记录的原文 */
   function _extractUserQuery(wrap) {
-    // 首选：发送时记录的原文（app.js 在添加用户消息时写入 window.__cmLastQuery）
-    const recorded = typeof window.__cmLastQuery === 'string' ? window.__cmLastQuery.trim() : '';
-    if (recorded) return recorded;
-    // 回退 1：从当前 AI 消息向上回溯最近的用户消息
+    // 首选：从当前 AI 消息向上回溯最近的用户消息（历史消息与实时消息都适用）
     let prev = wrap.previousElementSibling;
     while (prev) {
       if (prev.classList.contains('user')) {
@@ -227,10 +231,11 @@ import { API } from './env.js';
       }
       prev = prev.previousElementSibling;
     }
-    // 回退 2：取容器里最后一条用户消息（应对消息被重渲染等异常结构）
-    const users = document.querySelectorAll('#chat-messages .chat-msg-wrap.user .prose-cm');
-    const last = users.length ? users[users.length - 1] : null;
-    return last?.textContent?.trim() || '';
+    // 回退：发送时记录的原文（app.js 在添加用户消息时写入 window.__cmLastQuery）
+    // 不做「取最后一条用户消息」的全局回退：否则欢迎语等无前置提问的消息也会挂上
+    // 历史对话里最后一个问题的按钮。
+    const recorded = typeof window.__cmLastQuery === 'string' ? window.__cmLastQuery.trim() : '';
+    return recorded;
   }
 
   // ---------- 渐进式操作按钮 ----------
@@ -261,9 +266,15 @@ import { API } from './env.js';
   function renderProgressiveActions(topicId) {
     return `
       <div class="progressive-actions flex flex-wrap gap-2 mt-3" data-topic-id="${topicId}">
-        <button data-qa="deep" class="px-3 py-1.5 text-sm rounded-lg border border-cyan-500/40 bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 transition">📖 深入了解</button>
-        <button data-qa="code" class="px-3 py-1.5 text-sm rounded-lg border border-emerald-500/40 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 transition">💻 看代码</button>
-        <button data-qa="quiz" class="px-3 py-1.5 text-sm rounded-lg border border-amber-500/40 bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 transition">✏️ 出题考考我</button>
+        <button data-qa="deep" class="btn btn-ghost btn-sm">
+          <svg class="cm-icon cm-icon-sm" aria-hidden="true"><use href="#i-book"></use></svg>深入了解
+        </button>
+        <button data-qa="code" class="btn btn-ghost btn-sm">
+          <svg class="cm-icon cm-icon-sm" aria-hidden="true"><use href="#i-code"></use></svg>看代码
+        </button>
+        <button data-qa="quiz" class="btn btn-ghost btn-sm">
+          <svg class="cm-icon cm-icon-sm" aria-hidden="true"><use href="#i-practice"></use></svg>出题考考我
+        </button>
       </div>
     `;
   }
