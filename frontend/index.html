@@ -184,6 +184,11 @@
           <span>连接中</span>
         </span>
         <span id="user-chip" class="user-chip hidden"></span>
+        <button id="btn-books" onclick="openBooks()" title="知识范围：内置课程" class="btn btn-ghost btn-sm">
+          <svg class="cm-icon cm-icon-sm" aria-hidden="true"><use href="#i-book"></use></svg>
+          <span>知识库</span>
+          <span id="books-count" class="books-count hidden">0</span>
+        </button>
         <button id="btn-settings" onclick="openSettings()" title="配置你自己的远程 API Key（只保存在浏览器）" class="btn btn-ghost btn-sm">
           <svg class="cm-icon cm-icon-sm" aria-hidden="true"><use href="#i-settings"></use></svg>
           <span id="settings-btn-label">配置模型</span>
@@ -663,7 +668,7 @@
 </main>
 
 <!-- ============ JS ============ -->
-<script type="module" src="./js/app.js?v=9"></script>
+<script type="module" src="./js/app.js?v=10"></script>
 
 <!-- ============ 个人学情档案 ============ -->
 <div id="profile-detail-modal" class="modal-overlay hidden" style="z-index:115" onclick="if(event.target===this)closeProfileDetail()">
@@ -843,6 +848,41 @@
 <div id="take-assignment-modal" class="modal-overlay hidden" style="z-index:110" onclick="if(event.target===this)closeTakeAssignment()">
   <div class="modal-panel modal-xl">
     <div id="take-assignment-content"></div>
+  </div>
+</div>
+
+<!-- ============ 知识库 · 我的书架 ============ -->
+<div id="books-modal" class="modal-overlay hidden" style="z-index:118" onclick="if(event.target===this)closeBooks()">
+  <div class="modal-panel books-modal-panel">
+    <div class="modal-head">
+      <div>
+        <h2 class="modal-title">知识库 · 我的书架</h2>
+        <p class="modal-sub">内置课程与上传书籍可组合检索。书籍只对本人生效，原文保存在本机服务端，不会上传到第三方。</p>
+      </div>
+      <button onclick="closeBooks()" class="modal-close" aria-label="关闭">
+        <svg class="cm-icon cm-icon-lg" aria-hidden="true"><use href="#i-x"></use></svg>
+      </button>
+    </div>
+
+    <div id="books-msg" class="hidden mb-3"></div>
+    <div id="books-scope"></div>
+    <div id="book-list" class="book-list"></div>
+
+    <div class="books-upload">
+      <input id="book-file" type="file" class="hidden"
+             accept=".pdf,.docx,.txt,.md,.markdown,.epub"
+             onchange="handleBookFile(event)">
+      <button id="book-upload-btn" class="btn btn-primary btn-sm"
+              onclick="document.getElementById('book-file').click()">
+        <svg class="cm-icon cm-icon-sm" aria-hidden="true"><use href="#i-upload"></use></svg>上传书籍
+      </button>
+      <span id="books-upload-hint" class="footnote">支持 PDF / Word(.docx) / TXT / Markdown / EPUB，单文件 ≤ 50MB</span>
+    </div>
+
+    <p class="footnote books-privacy">
+      检索时只会把命中的片段随当前对话发送给你配置的模型；解析与向量化在本机完成。
+      扫描版 PDF 需要先 OCR。
+    </p>
   </div>
 </div>
 

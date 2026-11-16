@@ -65,23 +65,36 @@ class KnowledgeGraph:
 
     # ---------- 检索 ----------
     def search_nodes(self, query: str, top_k: int = 5) -> list[dict]:
-        """模糊搜索节点（ID 和 name 字段）"""
-        q = query.lower()
+        """模糊搜索节点（ID / name），支持双向包含。
+
+        既支持「红」→「红黑树」这类短查询，也支持
+        「红黑树的五条性质是什么」→「红黑树」这类自然语言长问句：
+        后者要求节点名出现在问题里，否则整句永远无法成为节点名的子串。
+        """
+        q = (query or "").strip().lower()
+        if not q:
+            return []
         scored = []
         for nid, attrs in self.graph.nodes(data=True):
-            score = 0
-            if q in nid.lower():
-                score += 3
-            name = attrs.get("name", "").lower()
-            if q in name:
-                score += 2
-            # 包含关系提升权重
-            if any(q in v.lower() for v in attrs.values() if isinstance(v, str)):
-                score += 1
+            nid_l = nid.lower()
+            name = str(attrs.get("name", "")).lower()
+            score = 0.0
+            if q == nid_l or q == name:
+                score += 12
+            elif q in nid_l:
+                score += 6
+            elif q in name:
+                score += 5
+            # 反向包含：节点名出现在问题里（长问句的主要命中路径）
+            if name and name in q and name != q:
+                score += 6 + min(len(name), 6)
+            if nid_l in q and nid_l != q:
+                score += 5
             if score > 0:
-                scored.append((score, {"id": nid, **attrs}))
-        scored.sort(key=lambda x: -x[0])
-        return [item[1] for item in scored[:top_k]]
+                scored.append((score, len(name), {"id": nid, **attrs}))
+        # 同名/高分时优先更长的节点名，避免「堆」压过「堆排序」这类情况
+        scored.sort(key=lambda x: (-x[0], -x[1]))
+        return [item[2] for item in scored[:top_k]]
 
     def get_neighbors(self, node_id: str, max_depth: int = 2) -> list[dict]:
         """获取节点的多跳邻居，返回子图节点列表"""

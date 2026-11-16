@@ -1,11 +1,12 @@
 """对话路由 — 核心 SSE 流式接口"""
 import json
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from typing import Optional, List
 from app.agents.agent_service import get_agent, STATUS_SENTINEL
 from app.core.llm_config import LLMConfig, require_llm_config
+from app.core.security import get_optional_user
 
 router = APIRouter(prefix="/api/chat", tags=["对话"])
 
@@ -21,6 +22,9 @@ class ChatRequest(BaseModel):
     history: Optional[List[ChatMessage]] = Field(None, description="可选：历史对话")
     # 浏览器本地个人学情摘要；仅本次请求用于个性化，服务端不持久化
     profile: Optional[dict] = Field(None, description="可选：本地学情摘要")
+    # 本次知识范围：builtin / books；book_ids 为书架中选中的书
+    knowledge_sources: Optional[List[str]] = Field(None, description="可选：本次使用的知识源")
+    book_ids: Optional[List[str]] = Field(None, description="可选：本次使用的书籍 ID")
 
 
 def _sse(data: dict) -> str:
@@ -29,9 +33,19 @@ def _sse(data: dict) -> str:
 
 
 @router.post("/stream")
-async def chat_stream(req: ChatRequest, config: LLMConfig = Depends(require_llm_config)):
+async def chat_stream(
+    req: ChatRequest,
+    request: Request,
+    config: LLMConfig = Depends(require_llm_config),
+    user: Optional[dict] = Depends(get_optional_user),
+):
     """Agent 驱动的流式对话接口（使用请求携带的用户 Key）"""
-    agent = get_agent(config)
+    agent = get_agent(
+        config,
+        user_id=(user or {}).get("username"),
+        knowledge_sources=req.knowledge_sources,
+        book_ids=req.book_ids,
+    )
     history = [{"role": m.role, "content": m.content} for m in (req.history or [])]
 
     async def event_generator():
@@ -66,8 +80,18 @@ async def chat_stream(req: ChatRequest, config: LLMConfig = Depends(require_llm_
 
 
 @router.post("/quick")
-async def quick_answer(req: ChatRequest, config: LLMConfig = Depends(require_llm_config)):
-    """快速问答（不走 Agent 工具调度，直接 GraphRAG + LLM）"""
-    agent = get_agent(config)
+async def quick_answer(
+    req: ChatRequest,
+    request: Request,
+    config: LLMConfig = Depends(require_llm_config),
+    user: Optional[dict] = Depends(get_optional_user),
+):
+    """快速问答（不走 Agent 工具调度，直接检索 + LLM）"""
+    agent = get_agent(
+        config,
+        user_id=(user or {}).get("username"),
+        knowledge_sources=req.knowledge_sources,
+        book_ids=req.book_ids,
+    )
     answer = await agent.quick_answer(req.message)
     return {"answer": answer}

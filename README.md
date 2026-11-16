@@ -30,7 +30,8 @@
 ## 核心能力
 
 - **Agent 多轮工具调度**：`search_knowledge`（知识问答）/ `analyze_code_ast`（代码分析）/ `execute_code`（沙箱运行）/ `get_learning_path`（学情推荐）/ `generate_practice_questions`（出题练习），最多 3 轮规划 → 调工具 → 再规划，SSE 实时展示思考阶段。
-- **GraphRAG**：86 节点 / 93 条有效关系（数据结构、算法、操作系统、计算机网络、数据库）+ ChromaDB 向量检索，向量由 **bge-small-zh-v1.5**（512 维真实语义 Embedding）生成；图谱提供结构关系，向量提供教材片段。
+- **GraphRAG**：86 节点 / 93 条有效关系（数据结构、算法、操作系统、计算机网络、数据库）+ ChromaDB 向量检索，向量由 **bge-small-zh-v1.5**（FastEmbed/ONNX，512 维真实语义 Embedding）生成；图谱提供结构关系，向量提供教材片段。
+- **我的书架 / 知识源插件**：用户可上传 **PDF / Word(.docx) / TXT / Markdown / EPUB**，后台自动解析、结构感知切片、本地向量化；与内置课程**组合检索**，也可取消内置课程实现**只用书架**。书籍按用户隔离，检索结果带书名/章节/页码出处。
 - **Reranker 重排序**：向量粗召回 Top-K 后二次重排——规则重排（图谱关联加权 + 余弦相似度）；若请求携带智谱 Key，自动升级为 **embedding-3（2048 维）** 语义重排。
 - **Agent 错误自恢复**：工具调用失败自动重试一次；仍失败则降级为 LLM 直接推理作答，并在回答前明确提示「工具暂时不可用」，不会直接抛错给用户。
 - **代码分析**：Python AST 检测嵌套循环、递归、死循环、复杂度启发式；pycodestyle 风格检查。
@@ -90,11 +91,11 @@
 
 ### 环境
 
-- **Python 3.11 / 3.12 / 3.13 / 3.14**（已在 3.14 验证；3.13 上个别 numpy 版本可能无 wheel，建议 3.11/3.12）
+- **Python 3.11 / 3.12 / 3.13**（已在 3.13 验证；`chromadb` 需 >=1.5 才有 cp313 轮子，requirements 已适配）
 - 无需 Node.js（前端零构建；vendor 已本地化）
 - Docker 可选
-- 磁盘预留 **约 1 GB**：`sentence-transformers` + `torch(CPU)` 约 900 MB，bge-small 模型约 95 MB
-- 网络：首次启动需下载 bge-small 模型；国内建议设置 `HF_ENDPOINT=https://hf-mirror.com`
+- 磁盘预留 **约 550 MB**：完整后端 venv 约 464 MB（含 fastembed/onnxruntime/chromadb），bge-small 模型约 91 MB（无需 torch）
+- 网络：首次启动需下载 bge-small 模型；默认走 `HF_ENDPOINT=https://hf-mirror.com` 镜像
 
 ### 源码运行
 
@@ -109,6 +110,9 @@ python -m venv .venv
 pip install -r requirements.txt
 copy .env.example .env          # Windows
 # cp .env.example .env          # macOS/Linux
+
+# 可选：预下载 bge 模型（约 91 MB），便于断网演示
+python scripts/warm_embedding.py
 
 # 可选：生成教师班级 + 作业 + 8 份演示提交（不需要 API Key）
 python scripts/seed_demo.py
@@ -182,6 +186,15 @@ docker compose -f docker/docker-compose.yml up -d --build
 - 语音提问：Chrome / Edge Web Speech API
 - 思考步骤条：SSE `status` 旁路事件，不进入正文
 
+### 📚 知识库 · 我的书架
+
+- 顶部「知识库」→ 上传 PDF / Word(.docx) / TXT / Markdown / EPUB（单文件默认 ≤ 50MB）
+- 上传后后台执行：解析 → 章节/页码感知切片 → bge 向量化 → 入库；列表实时显示进度
+- 勾选书籍即可与内置课程一起检索；取消「内置课程库」即切换为**纯书架模式**（知识源替换）
+- 书籍仅上传者可见；回答可标注《书名》章节/页码；删除书籍会同步清理向量
+- 扫描版 PDF 不做 OCR，需先转文字版；旧版 `.doc` 请另存为 `.docx`
+- 知识源通过 `KnowledgeSource` 协议插件化，新增来源无需改 Agent/对话链路，详见 [PLUGIN_DEV.md](PLUGIN_DEV.md)
+
 ### 📝 练一练
 
 - **我的作业**（学生）：老师统一作业列表、作答、一次提交、结果回显
@@ -241,6 +254,19 @@ X-LLM-Model: <可选，覆盖预设模型>
 | POST | `/api/exam/grade` | 按题目快照中的方案判分；**不需要 Key** |
 | POST | `/api/analysis/personal` | 个人学情 LLM 分析（Key；只接收聚合后的掌握度 / 趋势 / 错题计数，不落盘） |
 | GET | `/api/plugins` | 当前出题 / 判题插件元数据（不含用户数据） |
+
+### 知识库 · 我的书架
+
+`/api/chat/stream` 与 `/api/chat/quick` 额外接收 `knowledge_sources`（`builtin` / `books`）与 `book_ids`，用于本次请求的知识范围。
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/api/books` | 书架列表 + 支持格式 + 可用知识源 🔐 |
+| POST | `/api/books` | 上传电子书（multipart，后台解析/向量化）🔐 |
+| GET | `/api/books/{id}` | 单本书处理状态 / 进度 🔐 |
+| DELETE | `/api/books/{id}` | 删除书籍、原始文件与向量 🔐 |
+| POST | `/api/books/{id}/reindex` | 重建某本书的向量索引 🔐 |
+| GET | `/api/books/sources` | 知识源插件元数据 🔐 |
 
 ### 班级 / 作业
 
@@ -313,7 +339,12 @@ X-LLM-Model: <可选，覆盖预设模型>
 | `DATA_DIR` | `./data` | 数据目录 |
 | `CHROMA_DIR` | `./data/chroma` | 向量库 |
 | `GRAPH_FILE` | `./data/knowledge_graph.json` | 图谱文件 |
-| `HF_ENDPOINT` | 空（官方源） | 模型下载源；国内建议 `https://hf-mirror.com` |
+| `HF_ENDPOINT` | `https://hf-mirror.com` | 模型下载源；可改为 `https://huggingface.co` |
+| `EMBEDDING_CACHE_DIR` | `./data/models` | FastEmbed 模型缓存目录（首次约 91 MB） |
+| `BOOKS_DIR` | `./data/books` | 我的书架原始文件、切片与索引 |
+| `BOOK_MAX_MB` | `50` | 单本电子书大小上限 |
+| `BOOK_CHUNK_SIZE` / `BOOK_CHUNK_OVERLAP` | `500` / `80` | 切片目标字数 / 重叠字数 |
+| `BOOK_EMBED_BATCH` | `32` | 向量化与入库批大小 |
 | `HOST` / `PORT` | `0.0.0.0` / `8080` | 监听地址 |
 
 ### Embedding
@@ -323,12 +354,22 @@ X-LLM-Model: <可选，覆盖预设模型>
 | 层级 | 模型 | 维度 | 触发条件 | 用途 |
 |---|---|---|---|---|
 | 1 | 智谱 `embedding-3` | 2048 | 请求携带智谱 Key | Reranker 阶段精细语义重排 |
-| 2 | `BAAI/bge-small-zh-v1.5`（本地） | 512 | 默认 | 向量库建库 + 粗召回 |
+| 2 | `BAAI/bge-small-zh-v1.5`（FastEmbed / ONNX 本地） | 512 | 默认 | 向量库建库 + 粗召回 |
 | 3 | 本地字符 bigram 哈希 | 512 | bge-small 加载失败 | 极端兜底，保证可用 |
 
 - ChromaDB 统一存 **bge-small 512 维**向量，维度稳定，不会因用户 provider 不同而漂移。
-- 首次启动会自动从 HuggingFace 下载 bge-small 模型（约 95 MB）。国内网络建议在 `backend/.env` 中设置 `HF_ENDPOINT=https://hf-mirror.com`（模板已内置）。
-- 更换模型或维度后需删除 `backend/data/chroma/` 让种子脚本重建，否则 Chroma 会因维度不一致报错。
+- 本地推理使用 **FastEmbed + ONNX Runtime**，无需 torch；常驻内存约 293 MB，模型加载约 0.1 秒（缓存命中后）。
+- **小写归一化**：bge 中文词表不含大写字母（`DFS` / `HTTP` / `Python` 会变成 `[UNK]`），服务会对文档和查询统一小写。实测纯同义改写查询 Top-1 从 80.6% 提升到 93.5%，与 sentence-transformers 官方实现逐条一致。
+- 首次启动会自动下载 bge 模型（约 91 MB），默认走 `HF_ENDPOINT=https://hf-mirror.com`；断网演示前可先执行 `python scripts/warm_embedding.py` 预热。
+- 向量库会写入模型/维度/索引版本元数据；更换模型或归一化策略后自动清空重建，无需手动删除 `data/chroma/`。
+
+### 知识源路由
+
+- 内置课程与用户书架都实现 `KnowledgeSource` 协议，由 `KnowledgeRouter` 并行检索、去重、按余弦分融合。
+- 内置源（`builtin`）继续提供知识图谱节点/前后置关系；书架源（`books`）只提供用户书籍片段。
+- 请求只传 `books` 时即进入**替换模式**，不查内置课程；传 `builtin + books` 为混合模式。
+- 新增知识源（Obsidian/Notion/网页语料等）：实现协议并在 `app/knowledge/registry.py` 注册，无需改 Agent 与前端。
+- 用户书籍按 `user_books_<sha1(username)>` 分 collection 存储，`book_id` 元数据过滤；接口层校验 owner。
 
 ---
 
@@ -339,7 +380,8 @@ X-LLM-Model: <可选，覆盖预设模型>
 | `backend/data/users.json` | 用户（PBKDF2 哈希）；首次启动创建演示账号 |
 | `backend/data/classroom.json` | 班级 / 作业 / 提交；原子写 + `.bak`，单进程 RLock |
 | `backend/data/knowledge_graph.json` | 86 节点 / 93 边种子（数据结构 / 算法 / 操作系统 / 网络 / 数据库） |
-| `backend/data/chroma/` | 向量库（bge-small-zh-v1.5，512 维，14 条教材片段） |
+| `backend/data/chroma/` | 内置向量库（bge-small-zh-v1.5，512 维，14 条教材片段）+ 用户书架向量 |
+| `backend/data/books/` | 用户上传的原始电子书、切片 JSON 与书架索引 `index.json`（按用户目录隔离） |
 
 浏览器本地：
 

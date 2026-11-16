@@ -5,6 +5,7 @@ import asyncio
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.core.config import get_settings
@@ -88,12 +89,8 @@ async def no_cache_static(request, call_next):
 
 @app.get("/")
 async def root():
-    return {
-        "name": "CodeMentor",
-        "version": "1.0.0",
-        "docs": "/docs",
-        "frontend": "/static/index.html",
-    }
+    """根路径直接进前端；API 文档在 /docs，健康检查在 /health。"""
+    return RedirectResponse(url="/static/index.html")
 
 
 @app.get("/health")

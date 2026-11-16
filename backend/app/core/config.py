@@ -24,8 +24,17 @@ class Settings(BaseSettings):
     chroma_dir: str = "./data/chroma"
     graph_file: str = "./data/knowledge_graph.json"
 
+    # 用户书架（上传的电子书）
+    books_dir: str = "./data/books"
+    book_max_mb: int = 50                      # 单个文件上限
+    book_chunk_size: int = 500                 # 目标切片字数
+    book_chunk_overlap: int = 80               # 切片重叠字数
+    book_embed_batch: int = 32                 # 编码/入库批大小
+
     # Embedding 模型下载源（国内默认走镜像，官方源可设为 https://huggingface.co）
     hf_endpoint: str = "https://hf-mirror.com"
+    # FastEmbed 模型缓存目录（首次启动下载 bge-small，约 91MB）
+    embedding_cache_dir: str = "./data/models"
 
     # Server
     port: int = 8000

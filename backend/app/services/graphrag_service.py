@@ -53,14 +53,31 @@ class GraphRAGService:
                     graph_context.append(nb)
                     seen_ids.add(nb["id"])
 
+        # 2. 向量粗检索
+        vector_results = await self.vector.query(query, top_k=vector_top_k)
+
+        # 2.5 用向量片段的 chapter 元数据反哺图谱：
+        # 自然语言长问句往往匹配不到节点名（如「最坏 O(n²)」），但向量片段带有 chapter，
+        # 可据此把对应知识点及其邻居补进图谱上下文，避免 GraphRAG 退化成纯向量检索。
+        for chunk in vector_results:
+            node_id = (chunk.get("metadata") or {}).get("chapter")
+            if not node_id or node_id in seen_ids:
+                continue
+            node = self.graph.get_node(node_id)
+            if not node:
+                continue
+            graph_context.append(node)
+            seen_ids.add(node_id)
+            for nb in self.graph.get_neighbors(node_id, max_depth=graph_depth):
+                if nb["id"] not in seen_ids:
+                    graph_context.append(nb)
+                    seen_ids.add(nb["id"])
+
         upstream_map = {}
         downstream_map = {}
         for node in graph_context[:3]:
             upstream_map[node["id"]] = self.graph.get_upstream(node["id"])
             downstream_map[node["id"]] = self.graph.get_downstream(node["id"])
-
-        # 2. 向量粗检索
-        vector_results = await self.vector.query(query, top_k=vector_top_k)
 
         # 3. Reranker
         vector_results = await self._rerank(query, vector_results, config)

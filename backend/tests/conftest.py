@@ -9,13 +9,16 @@ _DATA = os.path.join(_TMP, "data")
 # 拷贝真实 data（图谱 + 向量库），避免测试触发 LLM 种子流程
 _SRC = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "data"))
 if os.path.isdir(_SRC):
-    shutil.copytree(_SRC, _DATA, dirs_exist_ok=True)
+    # models/ 是约 91MB 的 Embedding 缓存，不随测试数据目录复制
+    shutil.copytree(_SRC, _DATA, dirs_exist_ok=True, ignore=shutil.ignore_patterns("models"))
 else:
     os.makedirs(_DATA, exist_ok=True)
 
 os.environ["DATA_DIR"] = _DATA
 os.environ["CHROMA_DIR"] = os.path.join(_DATA, "chroma")
 os.environ["GRAPH_FILE"] = os.path.join(_DATA, "knowledge_graph.json")
+os.environ["EMBEDDING_CACHE_DIR"] = os.path.join(_SRC, "models")
+os.environ["BOOKS_DIR"] = os.path.join(_DATA, "books")
 os.environ["RATE_LIMIT_PER_MIN"] = "100000"   # API 测试不受限流干扰
 os.environ["SANDBOX_MODE"] = "subprocess"      # 测试环境无 Docker 依赖
 os.environ["AUTH_SECRET"] = "test-secret"

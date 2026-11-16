@@ -8,8 +8,10 @@ import { attachStatusBox, updateStatus, collapseStatus } from './core/status.js'
 import { llmHeaders, hasLLMSettings } from './core/llmSettings.js';
 import { getProfileSummary, getWeakPoints } from './core/localStore.js';
 import { loadChatMessages, appendChatMessage, appendChatTurn, clearChatMessages } from './core/chatStore.js';
+import { knowledgeSourcePayload } from './core/knowledgeScope.js';
 // 设置窗口与班级/作业 UI 通过 window 暴露内联事件入口
 import './features/settings.js';
+import './features/books.js';
 import './features/classroom.js';
 import './features/profile.js';
 import { loadGraph } from './features/graph.js';
@@ -180,6 +182,7 @@ import './features/voice.js';
     refreshUserUI();
     reloadChatForCurrentUser();
     window.loadStudentAssignments?.();
+    window.refreshBooks?.();
   }
 
   async function doLogin(mode) {
@@ -206,6 +209,7 @@ import './features/voice.js';
         ? `欢迎回来，${data.username}。已为你切到「学情」。\n\n你可以：\n- 查看班级作业完成情况与薄弱知识点\n- 创建班级并批量布置统一作业\n- 生成班级学情分析报告`
         : `欢迎，${data.username}。可以从这里开始：\n\n- 直接问：「红黑树和 AVL 有什么区别？」\n- 切到「练一练」开始做题\n- 在「图谱」里浏览学科结构`;
       reloadChatForCurrentUser({ greeting: welcomeMsg });
+      window.refreshBooks?.();
       if (data.role === 'teacher') switchTab('teacher');
     } catch (e) {
       msg.textContent = '网络错误：' + e.message; msg.className = 'msg-err mb-3';
@@ -216,6 +220,7 @@ import './features/voice.js';
   window.updateLLMStatus?.();
   switchTab('chat'); // 初始化 Tab 面板显隐（刷新后主区空白的根因）
   reloadChatForCurrentUser(); // 刷新后恢复当前账号的本地对话
+  window.refreshBooks?.(); // 更新顶栏知识库徽标（此时全局 fetch 拦截器已就绪）
 
   // ---------- 启动检查 ----------
   async function checkAPI() {
@@ -387,6 +392,8 @@ import './features/voice.js';
           history: chatHistory.slice(-12),
           // 本地学情摘要：只用于本次 Prompt，后端不持久化
           profile: getProfileSummary(),
+          // 本次知识范围：内置课程 / 我的书架（书籍 ID 由服务端校验归属）
+          ...knowledgeSourcePayload(),
         })
       });
       if (!resp.ok) throw new Error('HTTP ' + resp.status);

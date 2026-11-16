@@ -1,12 +1,10 @@
 """LLM 服务 — 每个请求使用用户自己的远程 API Key。
 
 服务端不读取 .env 中的 LLM Key，也不做任何兜底；Key 仅存在于请求生命周期内。
-Embedding 固定使用本地字符 bigram 哈希向量，避免不同用户/不同 provider 的
-向量维度不一致导致 ChromaDB 查询失败。
+本地 Embedding 统一由 embedding_service（FastEmbed / bge-small）提供，避免不同
+provider 的向量维度不一致导致 ChromaDB 查询失败。
 """
-import hashlib
 import json
-import math
 from typing import AsyncGenerator, Optional
 
 import httpx
@@ -15,23 +13,6 @@ from app.core.llm_config import LLMConfig
 from app.core.logger import get_logger
 
 logger = get_logger("llm")
-
-
-# ---------------- 本地 Embedding（固定 384 维） ----------------
-
-def local_hash_embed(texts: list[str]) -> list[list[float]]:
-    """零依赖本地 Embedding：字符 bigram 哈希到 384 维并 L2 归一化。"""
-    vecs = []
-    for text in texts:
-        v = [0.0] * 384
-        t = (text or "").lower().replace(" ", "").replace("\n", "")
-        grams = [t[i:i + 2] for i in range(len(t) - 1)] or list(t) or ["empty"]
-        for g in grams:
-            h = int(hashlib.md5(g.encode("utf-8")).hexdigest(), 16)
-            v[h % 384] += 1.0
-        norm = math.sqrt(sum(x * x for x in v)) or 1.0
-        vecs.append([x / norm for x in v])
-    return vecs
 
 
 class LLMService:

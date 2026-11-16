@@ -39,10 +39,25 @@ class _FakeLLM:
         yield "FALLBACK_STREAM"
 
 
+class _FakeKnowledge:
+    def source_summary(self, source_ids=None, user_id=None, book_titles=None):
+        return "内置课程库"
+
+    def format_for_llm(self, result, max_chunks=5):
+        return ""
+
+    async def retrieve(self, *args, **kwargs):
+        raise AssertionError("本测试不应真正检索知识源")
+
+
 def _agent_with(fake):
     agent = object.__new__(AgentService)
     agent.llm = fake
-    agent.graphrag = None
+    agent.user_id = None
+    agent.knowledge_sources = ["builtin"]
+    agent.book_ids = []
+    agent.book_titles = []
+    agent.knowledge = _FakeKnowledge()
     return agent
 
 

@@ -157,6 +157,20 @@ def get_current_user(request: Request) -> dict:
     return {"username": payload["u"], "role": payload["r"]}
 
 
+def get_optional_user(request: Request) -> Optional[dict]:
+    """可选登录：未登录返回 None，用于对话等允许游客使用的接口。"""
+    auth = request.headers.get("Authorization", "")
+    if not auth.startswith("Bearer "):
+        return None
+    payload = decode_token(auth[7:])
+    if not payload:
+        return None
+    user = get_user_store().get(payload["u"])
+    if not user:
+        return None
+    return {"username": payload["u"], "role": payload["r"]}
+
+
 def require_role(*roles: str):
     """角色守卫: Depends(require_role("teacher"))"""
     async def checker(user: dict = Depends(get_current_user)) -> dict:

@@ -1678,3 +1678,155 @@ html.profile-modal-open body { overflow: hidden; }
   .profile-toolbar-actions .footnote { display: none; }
   .profile-chart { height: 180px; min-height: 180px; }
 }
+
+/* ---------------- 知识库 / 我的书架 ---------------- */
+.books-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 10px;
+  font-weight: 600;
+}
+.books-count.hidden { display: none !important; }
+
+.books-modal-panel { max-width: 760px; }
+
+.books-scope-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  background: var(--paper-sunken);
+  margin-bottom: 14px;
+}
+.books-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  cursor: pointer;
+}
+.books-check input { margin-top: 2px; accent-color: var(--accent); }
+.books-check-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 13px;
+  color: var(--ink);
+}
+.book-scope-note { font-size: 11px; color: var(--ink-tertiary); }
+
+.book-list { margin-top: 4px; }
+.book-list-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin: 6px 0 8px;
+}
+.book-items { display: flex; flex-direction: column; gap: 8px; }
+.book-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  background: var(--paper-raised);
+  cursor: pointer;
+  transition: border-color 0.15s var(--ease), background 0.15s var(--ease);
+}
+.book-item:hover { border-color: var(--line-strong); }
+.book-item.selected {
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--line));
+  background: color-mix(in srgb, var(--accent-soft) 45%, var(--paper-raised));
+}
+.book-item.disabled { opacity: 0.72; cursor: default; }
+.book-item input { margin-top: 3px; accent-color: var(--accent); }
+.book-main { flex: 1; min-width: 0; }
+.book-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+}
+.book-format {
+  font-size: 10px;
+  color: var(--ink-tertiary);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 0 4px;
+}
+.book-status { font-size: 10px; font-weight: 500; padding: 1px 6px; border-radius: 999px; }
+.status-success { color: var(--success); background: var(--success-soft); }
+.status-warning { color: var(--warning); background: var(--warning-soft); }
+.status-danger { color: var(--danger); background: var(--danger-soft); }
+.status-info { color: var(--info); background: var(--info-soft); }
+.book-meta {
+  margin-top: 3px;
+  font-size: 11px;
+  color: var(--ink-tertiary);
+  overflow-wrap: anywhere;
+}
+.book-bar {
+  height: 4px;
+  margin-top: 8px;
+  border-radius: 999px;
+  background: var(--paper-sunken);
+  overflow: hidden;
+}
+.book-bar span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.3s var(--ease);
+}
+.book-error {
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--danger);
+  overflow-wrap: anywhere;
+}
+.book-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+}
+.books-empty {
+  padding: 22px 16px;
+  text-align: center;
+  border: 1px dashed var(--line);
+  border-radius: var(--radius-card);
+  color: var(--ink-secondary);
+  font-size: 13px;
+}
+.books-upload {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+.books-privacy { margin-top: 12px; line-height: 1.6; }
+
+@media (max-width: 640px) {
+  .books-scope-row { align-items: flex-start; }
+  .book-item { flex-wrap: wrap; }
+  .book-actions { flex-direction: row; width: 100%; justify-content: flex-end; }
+  /* 顶栏空间有限：保留书籍图标与数量徽标，隐藏文字 */
+  #btn-books > span:not(.books-count) { display: none; }
+}
